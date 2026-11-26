@@ -6,6 +6,9 @@ import re
 from html import escape, unescape
 from pathlib import Path
 from shutil import copytree
+from datetime import datetime
+from urllib.parse import urlparse
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'src'
@@ -16,20 +19,54 @@ PAGES = dict(zip('home about news rules schedule papers team faq contact thanks 
                  'index about announcements regulations schedule papers committee faq contact acknowledgements notice-paper notice-solutions edition-2026 search'.split()))
 MAIL = '<a href="mailto:avephysica@outlook.com">avephysica@outlook.com</a>'
 
-def generate(i, lang, output):
+def release_snapshot(path):
+    if path is None:
+        return {'releaseId': None, 'announcements': []}
+    snapshot = json.loads(path.read_text())
+    release_id = snapshot['releaseId']
+    entries = snapshot['announcements']
+    if release_id is not None and str(UUID(release_id)) != release_id:
+        raise ValueError('Invalid release ID')
+    if len(entries) > 100 or (entries and release_id is None):
+        raise ValueError('Invalid announcement snapshot')
+    seen = set()
+    for entry in entries:
+        key = entry['id']
+        if str(UUID(key)) != key or key in seen:
+            raise ValueError('Invalid or duplicate announcement ID')
+        seen.add(key)
+        if not 1 <= len(entry['title']) <= 120 or not 1 <= len(entry['body']) <= 5000:
+            raise ValueError('Invalid announcement length')
+        if datetime.fromisoformat(entry['publishedAt']).utcoffset() is None:
+            raise ValueError('Publication timestamps need a timezone')
+    return snapshot
+
+
+def generate(i, lang, output, announcements, admin_url):
     prefix = '' if i == 0 else '../'
     folder = output if not i else output/lang
     folder.mkdir(exist_ok=True)
+    pages = PAGES.copy()
+    titles = {key: values[i] for key, values in LABELS.items()}
+    for item in announcements:
+        pages[item['id']] = 'announcement-' + item['id']
+        titles[item['id']] = item['title']
+
     def word(key):
-        return escape(LABELS[key][i])
+        return escape(titles[key])
+
     def link(key, label=None, cls=''):
-        return f'<a class="{cls}" href="{PAGES[key]}.html">{word(label or key)}</a>'
+        return f'<a class="{cls}" href="{pages[key]}.html">{word(label or key)}</a>'
     def file(name, label, meta):
         return f'<a class="file" download href="{prefix}resources/{name}"><strong>{word(label)}</strong><small>{meta} ↓</small></a>'
     files = (file('paper.pdf','theory','PDF · ver.1') + file('solutions.pdf','solutions','PDF · ver1.2') + file('2026.zip','allfiles','ZIP'))
     info = ' · '.join(word(k) for k in ['questions','points','hours'])
-    def feed():
-        return ''.join(f'<article class="entry"><time>{date}</time>{link(key)}</article>' for key,date in [('journal2','2026.07.04'),('journal1','2026.06.27')])
+    dates = [(item['id'], item['publishedAt'][:10].replace('-', '.')) for item in announcements]
+    dates += [('journal2', '2026.07.04'), ('journal1', '2026.06.27')]
+    dates.sort(key=lambda entry: entry[1], reverse=True)
+
+    def feed(rows=dates):
+        return ''.join(f'<article class="entry"><time>{date}</time>{link(key)}</article>' for key, date in rows)
     def original(key):
         return '<div lang="zh-CN" class="prose">'+''.join('<p>'+escape(line)+'</p>' for line in TEXT[key])+'</div>'
     heading = lambda k: '<h2>'+word(k)+'</h2>'
@@ -37,9 +74,9 @@ def generate(i, lang, output):
     facts = '<div class="facts">'+info+'</div>'
     homepage = (f'<div class="hero"><div class="hero-copy"><small>2026 · AvePhO</small><h1>{word("edition")}</h1><p>{word("lead")}</p>'
                 f'{link("edition","archive","button")}</div><div class="brandart"><img src="{prefix}assets/brand.webp" alt="AvePhO"></div></div>'
-                '<div class="grid">'+panel('latest',feed()+link('news','more','textlink'))+panel('resource',files)+'</div>'
+                '<div class="grid">'+panel('latest',feed(dates[:5])+link('news','more','textlink'))+panel('resource',files)+'</div>'
                 +'<div class="grid">'+panel('about','<p>'+word('advice')+'</p>'+link('about',cls='textlink'))+
-                panel('schedule',facts+feed())+'</div>'+panel('jump','<div class="chips">'+''.join(link(k) for k in ['rules','team','faq','contact','thanks'])+'</div>'))
+                panel('schedule',facts+feed([row for row in dates if row[0] in ('journal1','journal2')]))+'</div>'+panel('jump','<div class="chips">'+''.join(link(k) for k in ['rules','team','faq','contact','thanks'])+'</div>'))
     archive = f'<p>{word("edition")} · 2026</p>{facts}{files}'
     bodies = {
         'home': homepage, 'news':feed(), 'about':'<p>'+word('lead')+'</p>'+heading('original')+original('about'),
@@ -59,23 +96,37 @@ def generate(i, lang, output):
         else:
             bodies[key]+='<p><a href="https://mp.weixin.qq.com/s/pId2PQ9N6JqxYMxz5EReVQ">微信原文</a></p>'
         bodies[key]+=file(kind+'.pdf', attachment,'PDF')
-    index = [{'title':LABELS[k][i],'url':PAGES[k]+'.html','text':unescape(re.sub(r'<[^>]+>',' ',body))} for k,body in bodies.items() if k not in ('search','home')]
+    for item in announcements:
+        metadata = f'{item["publishedAt"][:10]} · {word("original")}'
+        paragraphs = ''.join(f'<p>{escape(line)}</p>' for line in item['body'].splitlines() if line.strip())
+        bodies[item['id']] = f'<p class="meta">{metadata}</p><div lang="zh-CN" class="prose">{paragraphs}</div>'
+    index = [{'title':titles[k],'url':pages[k]+'.html','text':unescape(re.sub(r'<[^>]+>',' ',body))} for k,body in bodies.items() if k not in ('search','home')]
     (folder/'search-index.js').write_text('const searchIndex = '+json.dumps(index,ensure_ascii=False)+';')
+    admin = f'<a href="{escape(admin_url)}">{word("admin")}</a>' if admin_url else ''
     for key,body in bodies.items():
-        choices=''.join(f'<option value="{prefix}{local+"/" if j else ""}{PAGES[key]}.html" {"selected" if j==i else ""}>{name}</option>' for j,(local,name) in enumerate(LANGUAGES))
+        choices=''.join(f'<option value="{prefix}{local+"/" if j else ""}{pages[key]}.html" {"selected" if j==i else ""}>{name}</option>' for j,(local,name) in enumerate(LANGUAGES))
         nav=''.join(link(k,cls='active' if k==key else '') for k in ['home','news','papers','schedule','about','team'])
         content=body if key=='home' else f'<section class="sheet"><h1>{word(key)}</h1>{body}</section>'
-        (folder/(PAGES[key]+'.html')).write_text(f'''<!doctype html>
+        (folder/(pages[key]+'.html')).write_text(f'''<!doctype html>
 <html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{word(key)} · AvePhO</title><link rel="stylesheet" href="{prefix}assets/site.css"></head>
 <body data-empty="{word('nothing')}"><header><div class="bar"><a class="brand" href="index.html">AvePhO</a><div class="tools">{link('search')}
 <select aria-label="{word('language')}" id="lang">{choices}</select><button id="theme" aria-label="{word('theme')}" title="{word('theme')}">◐</button></div></div>
-<nav>{nav}</nav></header><main>{content}</main><footer><b>AvePhO</b><div>{''.join(link(k) for k in ['rules','faq','contact','thanks'])}<a href="#">{word('top')}</a></div></footer>
+<nav>{nav}</nav></header><main>{content}</main><footer><b>AvePhO</b><div>{''.join(link(k) for k in ['rules','faq','contact','thanks'])}{admin}<a href="#">{word('top')}</a></div></footer>
 <script src="{prefix}assets/site.js"></script>{'<script src="search-index.js"></script><script src="'+prefix+'assets/search.js"></script>' if key=='search' else ''}</body></html>''')
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, help='Empty directory for a standalone public build')
+    parser.add_argument('--announcements', type=Path, help='Public announcement snapshot from the Worker')
+    parser.add_argument('--admin-url', default='', help='HTTPS link to the separate administration site')
     args = parser.parse_args()
+    admin_url = urlparse(args.admin_url)
+    if args.admin_url and (admin_url.scheme != 'https' or not admin_url.netloc or admin_url.username or
+                           admin_url.path not in ('', '/') or admin_url.query or admin_url.fragment):
+        parser.error('--admin-url must be an HTTPS origin')
+    if args.announcements and args.output is None:
+        parser.error('--announcements requires --output to avoid keeping withdrawn pages')
+    release = release_snapshot(args.announcements)
     output = ROOT if args.output is None else args.output.resolve()
     if args.output is not None:
         output.mkdir(parents=True, exist_ok=True)
@@ -84,7 +135,8 @@ def main():
         for directory in ('assets', 'resources'):
             copytree(ROOT / directory, output / directory)
     for idx, (language, _) in enumerate(LANGUAGES):
-        generate(idx, language, output)
+        generate(idx, language, output, release['announcements'], args.admin_url)
+    (output / 'release.json').write_text(json.dumps({'releaseId': release['releaseId']}))
 
 
 if __name__ == '__main__':
