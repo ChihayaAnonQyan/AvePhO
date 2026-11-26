@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AvePhO 公告管理</title>
+  <title>AvePhO 管理后台</title>
   <link rel="stylesheet" href="/admin.css">
   <script src="/admin.js" type="module"></script>
 </head>
 <body>
   <header><strong>AvePhO</strong><a href="https://chihayaanonqyan.github.io/AvePhO/">查看官网</a></header>
   <main>
-    <h1>公告管理</h1>
+    <h1>管理后台</h1>
     <p id="status" role="status">正在确认登录状态…</p>
     <form id="sign-in" method="post" action="/auth/login" hidden>
       <label for="password">管理员密码</label>
@@ -18,35 +18,75 @@
       <button id="sign-in-button" type="submit">登录</button>
     </form>
     <div id="dashboard" hidden>
-      <section class="track">
-        <p id="release-status"></p>
-        <div class="actions">
-          <button id="check" type="button" hidden>核对官网</button>
-          <button id="retry" type="button" hidden>重试部署</button>
-          <a id="run" hidden>查看 GitHub 部署记录</a>
+      <nav class="actions management-nav" aria-label="后台功能">
+        <button id="announcements-tab" type="button" aria-pressed="true" aria-controls="announcements-panel">公告管理</button>
+        <button id="papers-tab" type="button" aria-pressed="false" aria-controls="papers-panel">试卷管理</button>
+      </nav>
+      <div id="announcements-panel">
+        <section class="track">
+          <p id="release-status"></p>
+          <div class="actions">
+            <button id="check" type="button" hidden>核对官网</button>
+            <button id="retry" type="button" hidden>重试部署</button>
+            <a id="run" hidden>查看 GitHub 部署记录</a>
+          </div>
+        </section>
+        <div class="columns">
+          <section>
+            <div class="row"><h2>公告列表</h2><button id="new" type="button">新建</button></div>
+            <ul id="list"></ul>
+          </section>
+          <section>
+            <h2>编辑公告</h2>
+            <form id="editor">
+              <label for="title">标题</label><input id="title" maxlength="120" required>
+              <label for="body">正文</label><textarea id="body" rows="10" maxlength="5000" required></textarea>
+              <div class="actions">
+                <button type="submit">保存草稿</button>
+                <button id="preview" type="button">预览</button>
+                <button id="publish" type="button" disabled>发布</button>
+                <button id="withdraw" type="button" disabled>撤回</button>
+              </div>
+            </form>
+            <article id="preview-panel" hidden>
+              <strong>预览</strong><h3 id="preview-title"></h3><p id="preview-body"></p>
+            </article>
+          </section>
         </div>
-      </section>
-      <div class="columns">
-        <section>
-          <div class="row"><h2>公告列表</h2><button id="new" type="button">新建</button></div>
-          <ul id="list"></ul>
-        </section>
-        <section>
-          <h2>编辑公告</h2>
-          <form id="editor">
-            <label for="title">标题</label><input id="title" maxlength="120" required>
-            <label for="body">正文</label><textarea id="body" rows="10" maxlength="5000" required></textarea>
+      </div>
+      <div id="papers-panel" hidden>
+        <p id="paper-status" role="status"></p>
+        <div class="columns">
+          <section>
+            <div class="row"><h2>已登记届次</h2><button id="paper-new" type="button">新增届次</button></div>
+            <ul id="paper-list"></ul>
             <div class="actions">
-              <button type="submit">保存草稿</button>
-              <button id="preview" type="button">预览</button>
-              <button id="publish" type="button" disabled>发布</button>
-              <button id="withdraw" type="button" disabled>撤回</button>
+              <button id="paper-check" type="button">核对官网</button>
+              <button id="paper-retry" type="button" hidden>重试部署</button>
             </div>
-          </form>
-          <article id="preview-panel" hidden>
-            <strong>预览</strong><h3 id="preview-title"></h3><p id="preview-body"></p>
-          </article>
-        </section>
+            <a id="paper-run" href="https://github.com/ChihayaAnonQyan/AvePhO/actions/workflows/pages.yml">查看 GitHub 部署记录</a>
+          </section>
+          <section>
+            <h2 id="paper-form-title">新增届次</h2>
+            <form id="paper-editor" method="post" action="/api/papers/publish" enctype="multipart/form-data">
+              <div class="paper-fields">
+                <div><label for="paper-number">届次</label><input id="paper-number" name="number" type="number" min="2" max="999" required></div>
+                <div><label for="paper-year">举办年份</label><input id="paper-year" name="year" type="number" min="2026" max="9999" required></div>
+              </div>
+              <p id="paper-current" hidden></p>
+              <p id="pdf-limit">每份 PDF 最多 10 MiB。答案可以之后补传。</p>
+              <label for="paper-file">理论试题 PDF</label>
+              <input id="paper-file" name="paper" type="file" accept=".pdf,application/pdf" aria-describedby="pdf-limit" required>
+              <label for="paper-version">试题版本</label>
+              <input id="paper-version" name="paperVersion" maxlength="32" placeholder="v1.0" required>
+              <label for="solutions-file">答案与评分标准 PDF</label>
+              <input id="solutions-file" name="solutions" type="file" accept=".pdf,application/pdf" aria-describedby="pdf-limit">
+              <label for="solutions-version">答案版本</label>
+              <input id="solutions-version" name="solutionsVersion" maxlength="32" placeholder="v1.0">
+              <button id="paper-publish" type="submit">发布到官网</button>
+            </form>
+          </section>
+        </div>
       </div>
       <form method="post" action="/api/logout"><button>退出登录</button></form>
     </div>

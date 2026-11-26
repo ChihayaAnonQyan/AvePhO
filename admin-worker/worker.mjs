@@ -1,4 +1,5 @@
 import { base64url, dispatchPages, sha256 } from './github.mjs';
+import { paperResponse } from './papers.mjs';
 
 const SITE = 'https://chihayaanonqyan.github.io/AvePhO/';
 const SESSION = '__Host-avepho-session';
@@ -179,6 +180,7 @@ async function handle(request, env) {
   const session = await env.DB.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires_at > ?')
     .bind(tokenHash, time()).first();
   if (!session) return fail('请重新输入密码登录。', 401);
+  if (method === 'GET' && path === '/api/papers') return json(...await paperResponse(request, env, SITE, path));
   if (method === 'GET' && path === '/api/announcements') {
     const release = await newest(env.DB);
     const live = release?.state === 'pending'
@@ -190,6 +192,9 @@ async function handle(request, env) {
   }
   if (method !== 'POST') return fail('找不到该操作。', 404);
   if (request.headers.get('origin') !== env.ADMIN_ORIGIN) return fail('请求来源无效。', 403);
+  if (path === '/api/papers/publish' || path === '/api/papers/retry') {
+    return json(...await paperResponse(request, env, SITE, path));
+  }
   if (path === '/api/logout') {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
     return redirect('/', cookie(SESSION, '', 0));

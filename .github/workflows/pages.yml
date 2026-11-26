@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Check announcement publishing and withdrawal
+      - name: Check announcement and paper publishing
         run: node admin-worker/verify.mjs
       - name: Retrieve approved announcements
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

@@ -26,7 +26,10 @@ class PageCheck(HTMLParser):
 locales = [ROOT, ROOT/'zh-TW', ROOT/'en', ROOT/'ja']
 pages = [page for locale in locales for page in locale.glob('*.html')]
 announcement_pages = list(ROOT.glob('announcement-*.html'))
-assert len(pages) == 56 + 4 * len(announcement_pages)
+marker = ROOT/'release.json'
+paper_revisions = json.loads(marker.read_text()).get('paperRevisions', {}) if marker.is_file() else {}
+edition_names = [f'edition-{number}.html' for number in paper_revisions]
+assert len(pages) == 56 + 4 * (len(announcement_pages) + len(edition_names))
 for path in pages:
     check = PageCheck(path)
     check.feed(path.read_text())
@@ -34,9 +37,9 @@ for path in pages:
 for path in (locale/'search-index.js' for locale in locales):
     data = json.loads(path.read_text().removeprefix('const searchIndex = ').removesuffix(';'))
     assert any('avephysica@outlook.com' in item['text'] for item in data)
-    for page in announcement_pages:
-        assert (path.parent / page.name).is_file()
-        assert any(item['url'] == page.name for item in data)
+    for name in [page.name for page in announcement_pages] + edition_names:
+        assert (path.parent / name).is_file()
+        assert any(item['url'] == name for item in data)
 hashes = {'paper.pdf': 'baa7cdcd9cf12187016c4a47b078d83df17b89f8dbca95054d262a5afef30dac',
           'solutions.pdf': '335c213ee1b3eeadb48e522d8e00af05caf4ed4d92232f7db85e60b31bcd6191'}
 with ZipFile(ROOT/'resources/2026.zip') as archive:
@@ -49,4 +52,12 @@ with ZipFile(ROOT/'resources/2026.zip') as archive:
         assert sha256(original).hexdigest() == hashes[file]
         checked.add(file)
     assert checked == hashes.keys()
+for number in paper_revisions:
+    folder = ROOT/'resources'/'editions'/number
+    pdfs = {pdf.name for pdf in folder.glob('*.pdf')}
+    assert pdfs in ({'paper.pdf'}, {'paper.pdf', 'solutions.pdf'})
+    with ZipFile(folder/'all.zip') as archive:
+        assert set(archive.namelist()) == pdfs
+        for name in pdfs:
+            assert archive.read(name) == (folder/name).read_bytes()
 print(f'{len(pages)} pages, local links, search indices and original PDFs verified.')

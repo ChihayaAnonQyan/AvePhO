@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 const REPO = 'https://api.github.com/repos/ChihayaAnonQyan/AvePhO';
 
 export const base64url = (bytes) =>
@@ -46,22 +48,83 @@ async function appJwt(env) {
   return `${message}.${base64url(new Uint8Array(signature))}`;
 }
 
-export async function dispatchPages(env) {
+export class GitHubError extends Error {
+  constructor(status, operation) {
+    super(`GitHub rejected ${operation} (${status})`);
+    this.status = status;
+    this.operation = operation;
+  }
+}
+
+async function installationToken(env, permissions) {
   const response = await fetch(`https://api.github.com/app/installations/${encodeURIComponent(env.GITHUB_INSTALLATION_ID)}/access_tokens`, {
     method: 'POST',
     redirect: 'error',
     headers: githubHeaders(await appJwt(env)),
-    body: JSON.stringify({ repositories: ['AvePhO'], permissions: { actions: 'write' } }),
+    body: JSON.stringify({ repositories: ['AvePhO'], permissions }),
   });
-  if (!response.ok) throw new Error('Cannot obtain GitHub installation token');
+  if (!response.ok) throw new GitHubError(response.status, 'installation token');
   const { token } = await response.json();
-  const dispatch = await fetch(`${REPO}/actions/workflows/pages.yml/dispatches`, {
-    method: 'POST', redirect: 'error', headers: githubHeaders(token),
-    body: JSON.stringify({ ref: 'main' }),
+  return token;
+}
+
+async function repoRequest(token, path, { method = 'GET', body, accept } = {}) {
+  const headers = githubHeaders(token);
+  if (accept) headers.accept = accept;
+  const response = await fetch(REPO + path, {
+    method, redirect: 'error', headers,
+    body: body === undefined || body instanceof Blob ? body : JSON.stringify(body),
   });
-  if (!dispatch.ok) throw new Error('GitHub did not accept deployment');
+  if (!response.ok) {
+    // Release the response before attempting another GitHub request.
+    await response.body?.cancel();
+    throw new GitHubError(response.status, path);
+  }
+  return response;
+}
+
+export async function dispatchPages(env) {
+  const token = await installationToken(env, { actions: 'write' });
+  const dispatch = await repoRequest(token, '/actions/workflows/pages.yml/dispatches', {
+    method: 'POST', body: { ref: 'main' },
+  });
   if (dispatch.status === 204) return null;
   const { html_url: url } = await dispatch.json();
   return typeof url === 'string' &&
     /^https:\/\/github\.com\/ChihayaAnonQyan\/AvePhO\/actions\/runs\/\d+$/.test(url) ? url : null;
 }
+
+const CATALOG_PATH = 'src/papers.json';
+
+export async function openPaperCatalog(env, access = 'read') {
+  const token = await installationToken(env, { contents: access });
+  const { object: { sha: head } } = await repoRequest(token, '/git/ref/heads/main').then((r) => r.json());
+  const editions = await repoRequest(token, `/contents/${CATALOG_PATH}?ref=${head}`, {
+    accept: 'application/vnd.github.raw+json',
+  }).then((r) => r.json());
+  return { token, head, editions };
+}
+
+export async function commitPapers({ token, head }, editions, number, files) {
+  const { tree: { sha: baseTree } } = await repoRequest(token, `/git/commits/${head}`).then((r) => r.json());
+  const entry = (path, data) => ({ path, mode: '100644', type: 'blob', ...data });
+  const tree = [entry(CATALOG_PATH, { content: JSON.stringify(editions, null, 2) + '\n' })];
+  for (const [kind, file] of files) {
+    const content = Buffer.from(await file.arrayBuffer()).toString('base64');
+    const { sha } = await repoRequest(token, '/git/blobs', {
+      method: 'POST', body: new Blob(['{"encoding":"base64","content":"', content, '"}']),
+    }).then((r) => r.json());
+    tree.push(entry(`resources/editions/${number}/${kind}.pdf`, { sha }));
+  }
+  const { sha: newTree } = await repoRequest(token, '/git/trees', {
+    method: 'POST', body: { base_tree: baseTree, tree },
+  }).then((r) => r.json());
+  const { sha } = await repoRequest(token, '/git/commits', {
+    method: 'POST', body: { message: `Publish AvePhO edition ${number} resources`, tree: newTree, parents: [head] },
+  }).then((r) => r.json());
+  const updated = await repoRequest(token, '/git/refs/heads/main', {
+    method: 'PATCH', body: { sha, force: false },
+  });
+  await updated.body?.cancel();
+}
+
