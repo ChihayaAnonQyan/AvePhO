@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AvePhO 公告管理</title>
+  <link rel="stylesheet" href="/admin.css">
+  <script src="/admin.js" type="module"></script>
+</head>
+<body>
+  <header><strong>AvePhO</strong><a href="https://chihayaanonqyan.github.io/AvePhO/">查看官网</a></header>
+  <main>
+    <h1>公告管理</h1>
+    <p id="status" role="status">正在确认登录状态…</p>
+    <form id="sign-in" method="post" action="/auth/login" hidden>
+      <label for="password">管理员密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
+      <button id="sign-in-button" type="submit">登录</button>
+    </form>
+    <div id="dashboard" hidden>
+      <section class="track">
+        <p id="release-status"></p>
+        <div class="actions">
+          <button id="check" type="button" hidden>核对官网</button>
+          <button id="retry" type="button" hidden>重试部署</button>
+          <a id="run" hidden>查看 GitHub 部署记录</a>
+        </div>
+      </section>
+      <div class="columns">
+        <section>
+          <div class="row"><h2>公告列表</h2><button id="new" type="button">新建</button></div>
+          <ul id="list"></ul>
+        </section>
+        <section>
+          <h2>编辑公告</h2>
+          <form id="editor">
+            <label for="title">标题</label><input id="title" maxlength="120" required>
+            <label for="body">正文</label><textarea id="body" rows="10" maxlength="5000" required></textarea>
+            <div class="actions">
+              <button type="submit">保存草稿</button>
+              <button id="preview" type="button">预览</button>
+              <button id="publish" type="button" disabled>发布</button>
+              <button id="withdraw" type="button" disabled>撤回</button>
+            </div>
+          </form>
+          <article id="preview-panel" hidden>
+            <strong>预览</strong><h3 id="preview-title"></h3><p id="preview-body"></p>
+          </article>
+        </section>
+      </div>
+      <form method="post" action="/api/logout"><button>退出登录</button></form>
+    </div>
+  </main>
+</body>
+</html>

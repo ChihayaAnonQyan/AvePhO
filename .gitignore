@@ -1,0 +1,5 @@
+/dist/
+/admin-worker/wrangler.jsonc
+/admin-worker/.dev.vars*
+/admin-worker/.wrangler/
+/admin-worker/*.pem
