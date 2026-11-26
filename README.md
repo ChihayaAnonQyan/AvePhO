@@ -30,6 +30,6 @@ resources 保存首届试题原件、含评分标准的答案 ver1.2 和整届 Z
     python3 src/build.py --output dist
     python3 src/verify.py --output dist
 
-## 公告后台版本
+## 管理后台
 
-此版本的发布工作流会从已配置的 Worker 读取经过确认的公告内容。首次部署请先完成 [公告后台配置](admin-worker/README.md)，然后沿用上述 GitHub Pages 手动发布步骤。
+发布工作流从 Worker 读取已确认的公告，并使用 `src/papers.json` 和 `resources/editions/` 生成后续届次。使用 [后台部署说明](admin-worker/README.md) 完成首次配置或从公告后台升级。

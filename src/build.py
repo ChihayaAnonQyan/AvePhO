@@ -5,10 +5,11 @@ import json
 import re
 from html import escape, unescape
 from pathlib import Path
-from shutil import copytree
+from shutil import copy2, copytree
 from datetime import datetime
 from urllib.parse import urlparse
 from uuid import UUID
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'src'
@@ -42,12 +43,68 @@ def release_snapshot(path):
     return snapshot
 
 
-def generate(i, lang, output, announcements, admin_url):
+def paper_catalog(output):
+    editions = json.loads((SOURCE / 'papers.json').read_text())
+    if not isinstance(editions, list):
+        raise ValueError('Invalid paper catalog')
+    numbers = set()
+    for edition in editions:
+        number, year, revision, files = (edition[key] for key in ('number', 'year', 'revision', 'files'))
+        if type(number) is not int or not 2 <= number <= 999 or number in numbers:
+            raise ValueError('Invalid or duplicate edition number')
+        if type(year) is not int or not 2026 <= year <= 9999 or str(UUID(revision)) != revision:
+            raise ValueError('Invalid edition year or revision')
+        if not isinstance(files, dict) or 'paper' not in files or files.keys() - {'paper', 'solutions'}:
+            raise ValueError('Invalid list of edition PDFs')
+        source = ROOT / 'resources' / 'editions' / str(number)
+        folder = output / 'resources' / 'editions' / str(number)
+        pdfs = []
+        for kind, version in files.items():
+            if not isinstance(version, str) or not 1 <= len(version) <= 32 or not version.strip() or re.search(r'[\x00-\x1f\x7f]', version):
+                raise ValueError('Invalid PDF version')
+            pdf = source / (kind + '.pdf')
+            with pdf.open('rb') as stream:
+                if not re.fullmatch(rb'%PDF-\d\.\d', stream.read(8)):
+                    raise ValueError(f'Invalid PDF: {pdf}')
+            if source != folder:
+                folder.mkdir(parents=True, exist_ok=True)
+                pdf = Path(copy2(pdf, folder))
+            pdfs.append(pdf)
+        with ZipFile(folder / 'all.zip', 'w') as archive:
+            for pdf in pdfs:
+                archive.write(pdf, pdf.name)
+        numbers.add(number)
+    return sorted(editions, key=lambda item: item['number'], reverse=True)
+
+
+def chinese_number(number):
+    digits = '零一二三四五六七八九'
+    if number < 10:
+        return digits[number]
+    if number < 100:
+        tens, units = divmod(number, 10)
+        return (digits[tens] if tens > 1 else '') + '十' + (digits[units] if units else '')
+    hundreds, remainder = divmod(number, 100)
+    if not remainder:
+        return digits[hundreds] + '百'
+    if remainder < 10:
+        return digits[hundreds] + '百零' + digits[remainder]
+    suffix = chinese_number(remainder)
+    return digits[hundreds] + '百' + ('一' if remainder < 20 else '') + suffix
+
+
+def generate(i, lang, output, announcements, editions, admin_url):
     prefix = '' if i == 0 else '../'
     folder = output if not i else output/lang
     folder.mkdir(exist_ok=True)
     pages = PAGES.copy()
     titles = {key: values[i] for key, values in LABELS.items()}
+    for edition in editions:
+        number = edition['number']
+        key = f'edition-{number}'
+        pages[key] = key
+        titles[key] = titles['numbered_edition'].format(
+            number=chinese_number(number) if lang in ('zh-CN', 'zh-TW') else number)
     for item in announcements:
         pages[item['id']] = 'announcement-' + item['id']
         titles[item['id']] = item['title']
@@ -58,8 +115,15 @@ def generate(i, lang, output, announcements, admin_url):
     def link(key, label=None, cls=''):
         return f'<a class="{cls}" href="{pages[key]}.html">{word(label or key)}</a>'
     def file(name, label, meta):
-        return f'<a class="file" download href="{prefix}resources/{name}"><strong>{word(label)}</strong><small>{meta} ↓</small></a>'
+        return f'<a class="file" download href="{prefix}resources/{name}"><strong>{word(label)}</strong><small>{escape(meta)} ↓</small></a>'
     files = (file('paper.pdf','theory','PDF · ver.1') + file('solutions.pdf','solutions','PDF · ver1.2') + file('2026.zip','allfiles','ZIP'))
+    def edition_files(edition):
+        folder = f"editions/{edition['number']}/"
+        versions = edition['files']
+        downloads = file(folder + 'paper.pdf', 'theory', 'PDF · ' + versions['paper'])
+        if 'solutions' in versions:
+            downloads += file(folder + 'solutions.pdf', 'solutions', 'PDF · ' + versions['solutions'])
+        return downloads + file(folder + 'all.zip', 'allfiles', 'ZIP')
     info = ' · '.join(word(k) for k in ['questions','points','hours'])
     dates = [(item['id'], item['publishedAt'][:10].replace('-', '.')) for item in announcements]
     dates += [('journal2', '2026.07.04'), ('journal1', '2026.06.27')]
@@ -89,6 +153,16 @@ def generate(i, lang, output, announcements, admin_url):
         'faq':''.join('<details><summary>'+word(q)+'</summary><p>'+word(a)+'</p>'+extra+'</details>' for q,a,extra in [('practice','advice',''),('downloadq','downloadanswer',link('edition'))]),
         'search':f'<label for="keyword">{word("enter")}</label><input id="keyword" type="search"><div id="results" aria-live="polite"></div>',
     }
+    if editions:
+        listings = []
+        for edition in editions:
+            key = f"edition-{edition['number']}"
+            downloads = edition_files(edition)
+            year = edition['year']
+            bodies[key] = f'<p class="meta">{year}</p>{downloads}'
+            listings.append(f'<article class="panel"><h2>{link(key)}</h2><p class="meta">{year}</p>{downloads}</article>')
+        listings.append(f'<article class="panel"><h2>{link("edition")}</h2><p class="meta">2026</p>{files}</article>')
+        bodies['papers'] = ''.join(listings)
     for key, date, kind, attachment in [('journal1','2026-06-27 09:58','paper','theory'),('journal2','2026-07-04 12:31','solutions','solutions')]:
         bodies[key] = f'<p class="meta">{date} · AvePhO命题组 · {word("original")}</p>'+original(kind)
         if key=='journal2':
@@ -132,11 +206,16 @@ def main():
         output.mkdir(parents=True, exist_ok=True)
         if any(output.iterdir()):
             parser.error('--output must be an empty directory')
-        for directory in ('assets', 'resources'):
-            copytree(ROOT / directory, output / directory)
+        copytree(ROOT / 'assets', output / 'assets')
+        copytree(ROOT / 'resources', output / 'resources',
+                 ignore=lambda path, _names: {'editions'} if Path(path) == ROOT / 'resources' else set())
+    editions = paper_catalog(output)
     for idx, (language, _) in enumerate(LANGUAGES):
-        generate(idx, language, output, release['announcements'], args.admin_url)
-    (output / 'release.json').write_text(json.dumps({'releaseId': release['releaseId']}))
+        generate(idx, language, output, release['announcements'], editions, args.admin_url)
+    (output / 'release.json').write_text(json.dumps({
+        'releaseId': release['releaseId'],
+        'paperRevisions': {edition['number']: edition['revision'] for edition in editions},
+    }))
 
 
 if __name__ == '__main__':

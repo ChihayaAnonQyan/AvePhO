@@ -12,9 +12,10 @@ search	搜索	搜尋	Search	検索
 theme	切换主题	切換主題	Switch theme	テーマ切替
 language	语言	語言	Language	言語
 edition	第一届 AvePhO	第一屆 AvePhO	First AvePhO	第1回 AvePhO
+numbered_edition	第{number}届 AvePhO	第{number}屆 AvePhO	AvePhO Edition {number}	第{number}回 AvePhO
 theory	理论试题	理論試題	Theory paper	理論問題
 solutions	答案与评分标准	答案與評分標準	Solutions and marking scheme	解答・採点基準
-allfiles	下载整届资料	下載整屆資料	Download both files	一括ダウンロード
+allfiles	下载整届资料	下載整屆資料	Download edition ZIP	一括ダウンロード
 archive	查看试题与解答	查看試題與解答	Explore the papers	問題と解答を見る
 lead	由全国各地的退役物理竞赛选手命题，为现役选手提供进阶练习。	由全國各地的退役物理競賽選手命題，為現役選手提供進階練習。	Advanced practice problems written by former physics competitors for the next generation of contestants.	物理コンテストの経験者が、現役の選手に向けて発展問題を作成しています。
 questions	6 道理论题	6 道理論題	6 theory problems	理論問題 6 題
