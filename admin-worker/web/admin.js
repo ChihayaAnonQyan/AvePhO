@@ -1,3 +1,5 @@
+import { setupSchedule } from './schedule.js';
+
 const el = (id) => document.getElementById(id);
 let selected = null;
 let published = {};
@@ -191,12 +193,13 @@ async function paperAction(action) {
 }
 
 function showPanel(panel) {
-  for (const name of ['announcements', 'papers']) {
+  for (const name of ['announcements', 'papers', 'edition']) {
     el(name + '-panel').hidden = name !== panel;
     el(name + '-tab').setAttribute('aria-pressed', name === panel);
   }
 }
 
+setupSchedule({ el, api, showLogin, showPanel });
 el('announcements-tab').onclick = () => showPanel('announcements');
 el('papers-tab').onclick = () => {
   showPanel('papers');

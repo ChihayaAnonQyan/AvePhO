@@ -22,3 +22,10 @@ if (document.documentElement.lang === 'zh-CN' && /\/(index\.html)?$/.test(locati
   const choice = Number(readPref('avepho-language'));
   if (choice > 0 && locale.options[choice]) location.replace(locale.options[choice].value);
 }
+const now = Date.now();
+for (const status of document.querySelectorAll('[data-starts]')) {
+  const { starts, ends } = status.dataset;
+  const key = now < Date.parse(starts) ? 'upcoming'
+    : ends && now < Date.parse(ends) ? 'ongoing' : 'completed';
+  status.textContent = status.dataset[key];
+}

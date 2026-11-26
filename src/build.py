@@ -6,7 +6,7 @@ import re
 from html import escape, unescape
 from pathlib import Path
 from shutil import copy2, copytree
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from uuid import UUID
 from zipfile import ZipFile
@@ -19,6 +19,44 @@ LANGUAGES = [('zh-CN','简体中文'),('zh-TW','繁體中文'),('en','English'),
 PAGES = dict(zip('home about news rules schedule papers team faq contact thanks journal1 journal2 edition search'.split(),
                  'index about announcements regulations schedule papers committee faq contact acknowledgements notice-paper notice-solutions edition-2026 search'.split()))
 MAIL = '<a href="mailto:avephysica@outlook.com">avephysica@outlook.com</a>'
+SCHEDULE_STATES = ('upcoming', 'ongoing', 'completed')
+SCHEDULE_OFFSET = '+08:00'
+
+
+def schedule_datetime(text):
+    if not isinstance(text, str) or not re.fullmatch(r'[2-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}', text):
+        raise ValueError('Invalid schedule date and time')
+    return datetime.fromisoformat(text + SCHEDULE_OFFSET)
+
+
+def validate_schedule(snapshot):
+    schedule = snapshot.get('editionSchedule')
+    revision = snapshot.get('scheduleReleaseId')
+    if schedule is None and revision is None:
+        return
+    if not isinstance(schedule, dict) or not isinstance(revision, str) or str(UUID(revision)) != revision:
+        raise ValueError('Invalid schedule snapshot')
+    number, year, events = (schedule[key] for key in ('number', 'year', 'events'))
+    if (type(number) is not int or not 1 <= number <= 999 or type(year) is not int
+            or not 2026 <= year <= 9999 or (number == 1 and year != 2026)):
+        raise ValueError('Invalid current edition')
+    if not isinstance(events, list) or len(events) > 20:
+        raise ValueError('Invalid schedule entries')
+    for event in events:
+        starts = schedule_datetime(event['starts'])
+        if event['ends'] != '' and schedule_datetime(event['ends']) <= starts:
+            raise ValueError('Invalid schedule time range')
+        if event['status'] not in ('auto', *SCHEDULE_STATES):
+            raise ValueError('Invalid schedule status')
+        titles = event['titles']
+        if (not isinstance(titles, dict) or not titles.get('zh-CN')
+                or titles.keys() - {lang for lang, _ in LANGUAGES}
+                or any(not isinstance(title, str) or not title.strip() or len(title) > 80
+                       for title in titles.values())):
+            raise ValueError('Invalid schedule title')
+        announcement = event['announcement']
+        if not isinstance(announcement, str) or (announcement and str(UUID(announcement)) != announcement):
+            raise ValueError('Invalid linked announcement')
 
 def release_snapshot(path):
     if path is None:
@@ -40,6 +78,7 @@ def release_snapshot(path):
             raise ValueError('Invalid announcement length')
         if datetime.fromisoformat(entry['publishedAt']).utcoffset() is None:
             raise ValueError('Publication timestamps need a timezone')
+    validate_schedule(snapshot)
     return snapshot
 
 
@@ -93,18 +132,22 @@ def chinese_number(number):
     return digits[hundreds] + '百' + ('一' if remainder < 20 else '') + suffix
 
 
-def generate(i, lang, output, announcements, editions, admin_url):
+def generate(i, lang, output, announcements, editions, schedule, now, admin_url):
     prefix = '' if i == 0 else '../'
     folder = output if not i else output/lang
     folder.mkdir(exist_ok=True)
     pages = PAGES.copy()
     titles = {key: values[i] for key, values in LABELS.items()}
+
+    def edition_title(number):
+        return titles['numbered_edition'].format(
+            number=chinese_number(number) if lang in ('zh-CN', 'zh-TW') else number)
+
     for edition in editions:
         number = edition['number']
         key = f'edition-{number}'
         pages[key] = key
-        titles[key] = titles['numbered_edition'].format(
-            number=chinese_number(number) if lang in ('zh-CN', 'zh-TW') else number)
+        titles[key] = edition_title(number)
     for item in announcements:
         pages[item['id']] = 'announcement-' + item['id']
         titles[item['id']] = item['title']
@@ -131,21 +174,64 @@ def generate(i, lang, output, announcements, editions, admin_url):
 
     def feed(rows=dates):
         return ''.join(f'<article class="entry"><time>{date}</time>{link(key)}</article>' for key, date in rows)
+    def schedule_entry(event):
+        start = schedule_datetime(event['starts'])
+        end = schedule_datetime(event['ends']) if event['ends'] else None
+        state = event['status']
+        status_data = ''
+        if state == 'auto':
+            state = 'upcoming' if now < start else 'ongoing' if end and now < end else 'completed'
+            labels = ' '.join(f'data-{state}="{word("schedule_" + state)}"' for state in SCHEDULE_STATES)
+            status_data = f' data-starts="{start.isoformat()}" data-ends="{end.isoformat() if end else ""}" {labels}'
+        def time_tag(value):
+            label = value.isoformat(timespec='minutes').replace('T', ' ').split('+')[0]
+            return f'<time datetime="{value.isoformat()}">{label}</time>'
+        time_range = time_tag(start) + (' – ' + time_tag(end) if end else '')
+        locale = lang if lang in event['titles'] else 'zh-CN'
+        title = escape(event['titles'][locale])
+        announcement = event['announcement']
+        notice_link = link(announcement, 'related_notice') if announcement in pages else ''
+        return (f'<article class="entry schedule-entry"><h3 lang="{locale}">{title}</h3>'
+                f'<div class="schedule-time">{time_range} <span>UTC+08:00</span></div>'
+                f'<div class="schedule-meta"><span{status_data}>{word("schedule_" + state)}</span>{notice_link}</div></article>')
+    def event_rows(events):
+        return ''.join(map(schedule_entry, events)) if events else '<p>' + word('no_schedule') + '</p>'
     def original(key):
         return '<div lang="zh-CN" class="prose">'+''.join('<p>'+escape(line)+'</p>' for line in TEXT[key])+'</div>'
     heading = lambda k: '<h2>'+word(k)+'</h2>'
     panel = lambda key, body: '<section class="panel">'+heading(key)+body+'</section>'
     facts = '<div class="facts">'+info+'</div>'
-    homepage = (f'<div class="hero"><div class="hero-copy"><small>2026 · AvePhO</small><h1>{word("edition")}</h1><p>{word("lead")}</p>'
-                f'{link("edition","archive","button")}</div><div class="brandart"><img src="{prefix}assets/brand.webp" alt="AvePhO"></div></div>'
-                '<div class="grid">'+panel('latest',feed(dates[:5])+link('news','more','textlink'))+panel('resource',files)+'</div>'
+    current_year = schedule['year'] if schedule else 2026
+    current_number = schedule['number'] if schedule else 1
+    current_title = word('edition') if current_number == 1 else escape(edition_title(current_number))
+    current_paper = next((edition for edition in editions
+                          if edition['number'] == current_number and edition['year'] == current_year), None)
+    hero_link = link('edition', 'archive', 'button')
+    resource_key = 'resource'
+    resource_body = files
+    if current_number != 1:
+        resource_key = 'papers'
+        resource_body = edition_files(current_paper) if current_paper else link('papers', cls='textlink')
+        hero_link = (link(f'edition-{current_number}', 'archive', 'button') if current_paper
+                     else link('schedule', cls='button'))
+    first_edition_dates = feed([row for row in dates if row[0] in ('journal1', 'journal2')])
+    home_schedule = facts + first_edition_dates
+    schedule_body = feed()
+    if schedule:
+        events = sorted(schedule['events'], key=lambda event: event['starts'])
+        home_schedule = event_rows(events[:3]) + link('schedule', cls='textlink')
+        schedule_body = (f'<h2>{current_title} · {current_year}</h2>' + event_rows(events)
+                         + heading('first_schedule_history') + first_edition_dates)
+    homepage = (f'<div class="hero"><div class="hero-copy"><small>{current_year} · AvePhO</small><h1>{current_title}</h1><p>{word("lead")}</p>'
+                f'{hero_link}</div><div class="brandart"><img src="{prefix}assets/brand.webp" alt="AvePhO"></div></div>'
+                '<div class="grid">'+panel('latest',feed(dates[:5])+link('news','more','textlink'))+panel(resource_key,resource_body)+'</div>'
                 +'<div class="grid">'+panel('about','<p>'+word('advice')+'</p>'+link('about',cls='textlink'))+
-                panel('schedule',facts+feed([row for row in dates if row[0] in ('journal1','journal2')]))+'</div>'+panel('jump','<div class="chips">'+''.join(link(k) for k in ['rules','team','faq','contact','thanks'])+'</div>'))
+                panel('schedule',home_schedule)+'</div>'+panel('jump','<div class="chips">'+''.join(link(k) for k in ['rules','team','faq','contact','thanks'])+'</div>'))
     archive = f'<p>{word("edition")} · 2026</p>{facts}{files}'
     bodies = {
         'home': homepage, 'news':feed(), 'about':'<p>'+word('lead')+'</p>'+heading('original')+original('about'),
         'rules':'<p>'+word('rulesnote')+'</p><p>'+word('advice')+'</p>'+link('about',cls='button'),
-        'schedule':feed(), 'papers':link('edition',cls='textlink')+files,
+        'schedule':schedule_body, 'papers':link('edition',cls='textlink')+files,
         'edition':archive+heading('errata')+'<p>'+word('errstate')+'</p>'+MAIL,
         'team':heading('paperteam')+'<div class="people">'+''.join('<strong>'+name+'</strong>' for name in ['l','整点薯条','羽','户山香澄'])+'</div>',
         'thanks':'<p>'+word('credit')+'</p>'+link('team',cls='textlink'),
@@ -210,10 +296,12 @@ def main():
         copytree(ROOT / 'resources', output / 'resources',
                  ignore=lambda path, _names: {'editions'} if Path(path) == ROOT / 'resources' else set())
     editions = paper_catalog(output)
+    now = datetime.now(timezone.utc)
     for idx, (language, _) in enumerate(LANGUAGES):
-        generate(idx, language, output, release['announcements'], editions, args.admin_url)
+        generate(idx, language, output, release['announcements'], editions, release.get('editionSchedule'), now, args.admin_url)
     (output / 'release.json').write_text(json.dumps({
         'releaseId': release['releaseId'],
+        'scheduleReleaseId': release.get('scheduleReleaseId'),
         'paperRevisions': {edition['number']: edition['revision'] for edition in editions},
     }))
 

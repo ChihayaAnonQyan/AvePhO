@@ -1,10 +1,12 @@
 import { base64url, dispatchPages, sha256 } from './github.mjs';
 import { paperResponse } from './papers.mjs';
+import { editionResponse, exportedEdition } from './edition.mjs';
 
 const SITE = 'https://chihayaanonqyan.github.io/AvePhO/';
 const SESSION = '__Host-avepho-session';
 const SESSION_AGE = 8 * 3600;
 const MAX_PENDING_POST = 20 * 1024;
+const EDITION_POST_LIMIT = 48 * 1024;
 const headers = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
@@ -100,7 +102,10 @@ async function exportRelease(request, env) {
         new TextEncoder().encode(await sha256(token)),
         new TextEncoder().encode(await sha256('Bearer ' + env.EXPORT_SECRET)))) return fail('访问受限。', 401);
   const release = await newest(env.DB);
-  return json({ releaseId: release?.id ?? null, announcements: fromSnapshot(release) });
+  return json({
+    releaseId: release?.id ?? null, announcements: fromSnapshot(release),
+    ...await exportedEdition(env.DB),
+  });
 }
 
 async function trigger(env, release) {
@@ -167,7 +172,7 @@ async function handle(request, env) {
   const { method } = request;
   if (method === 'POST' && path === '/auth/login') return logIn(request, env);
   if (method === 'GET' && path === '/internal/release') return exportRelease(request, env);
-  if (method === 'GET' && ['/', '/admin.js', '/admin.css'].includes(path)) {
+  if (method === 'GET' && ['/', '/admin.js', '/schedule.js', '/admin.css'].includes(path)) {
     const asset = await env.ASSETS.fetch(request);
     const response = new Response(asset.body, asset);
     for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
@@ -181,6 +186,12 @@ async function handle(request, env) {
     .bind(tokenHash, time()).first();
   if (!session) return fail('请重新输入密码登录。', 401);
   if (method === 'GET' && path === '/api/papers') return json(...await paperResponse(request, env, SITE, path));
+  if (method === 'GET' && path === '/api/edition') {
+    const announcements = fromSnapshot(await env.DB.prepare(
+      "SELECT snapshot FROM releases WHERE state = 'live' ORDER BY rowid DESC LIMIT 1"
+    ).first());
+    return json(...await editionResponse(env, SITE, path, null, announcements));
+  }
   if (method === 'GET' && path === '/api/announcements') {
     const release = await newest(env.DB);
     const live = release?.state === 'pending'
@@ -194,6 +205,9 @@ async function handle(request, env) {
   if (request.headers.get('origin') !== env.ADMIN_ORIGIN) return fail('请求来源无效。', 403);
   if (path === '/api/papers/publish' || path === '/api/papers/retry') {
     return json(...await paperResponse(request, env, SITE, path));
+  }
+  if (['/api/edition/save', '/api/edition/publish', '/api/edition/check', '/api/edition/retry'].includes(path)) {
+    return json(...await editionResponse(env, SITE, path, await readInput(request, EDITION_POST_LIMIT)));
   }
   if (path === '/api/logout') {
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
