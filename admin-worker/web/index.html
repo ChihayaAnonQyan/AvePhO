@@ -21,6 +21,7 @@
       <nav class="actions management-nav" aria-label="后台功能">
         <button id="announcements-tab" type="button" aria-pressed="true" aria-controls="announcements-panel">公告管理</button>
         <button id="papers-tab" type="button" aria-pressed="false" aria-controls="papers-panel">试卷管理</button>
+        <button id="edition-tab" type="button" aria-pressed="false" aria-controls="edition-panel">届次与日程</button>
       </nav>
       <div id="announcements-panel">
         <section class="track">
@@ -88,6 +89,60 @@
           </section>
         </div>
       </div>
+      <div id="edition-panel" hidden>
+        <section>
+          <h2>当前届次与赛事日程</h2>
+          <p id="edition-status" role="status"></p>
+          <p id="edition-release"></p>
+          <form id="edition-editor">
+            <fieldset id="edition-fields" disabled>
+              <legend class="visually-hidden">届次设置</legend>
+              <div class="paper-fields">
+                <div><label for="edition-number">当前届次</label><input id="edition-number" type="number" min="1" max="999" required></div>
+                <div><label for="edition-year">举办年份</label><input id="edition-year" type="number" min="2026" max="9999" required></div>
+              </div>
+              <p>日程时间使用北京时间（UTC+08:00）。草稿可提前保存，发布后访客可见。</p>
+              <div id="schedule-list"></div>
+              <div class="actions">
+                <button id="schedule-add" type="button">添加日程节点</button>
+                <button type="submit">保存草稿</button>
+                <button id="edition-publish" type="button" disabled>发布到官网</button>
+              </div>
+            </fieldset>
+          </form>
+          <div class="actions edition-deployment">
+            <button id="edition-check" type="button" hidden>核对官网</button>
+            <button id="edition-retry" type="button" hidden>重试部署</button>
+            <a id="edition-run" href="https://github.com/ChihayaAnonQyan/AvePhO/actions/workflows/pages.yml" hidden>查看 GitHub 部署记录</a>
+          </div>
+        </section>
+      </div>
+      <template id="schedule-event">
+        <fieldset class="schedule-event">
+          <legend>日程节点</legend>
+          <label>节点名称<input data-field="zh-CN" maxlength="80" required></label>
+          <div class="paper-fields">
+            <label>开始时间<input type="datetime-local" data-field="starts" required></label>
+            <label>结束时间（可选）<input type="datetime-local" data-field="ends"></label>
+          </div>
+          <div class="paper-fields">
+            <label>状态<select data-field="status">
+              <option value="auto">按时间自动判定</option>
+              <option value="upcoming">未开始</option>
+              <option value="ongoing">进行中</option>
+              <option value="completed">已完成</option>
+            </select></label>
+            <label>相关公告（可选）<select data-field="announcement"><option value="">无</option></select></label>
+          </div>
+          <details>
+            <summary>其他语言的名称（可选）</summary>
+            <label>繁體中文<input data-field="zh-TW" maxlength="80"></label>
+            <label>English<input data-field="en" maxlength="80"></label>
+            <label>日本語<input data-field="ja" maxlength="80"></label>
+          </details>
+          <button type="button" data-remove>移除此节点</button>
+        </fieldset>
+      </template>
       <form method="post" action="/api/logout"><button>退出登录</button></form>
     </div>
   </main>

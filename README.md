@@ -32,4 +32,4 @@ resources 保存首届试题原件、含评分标准的答案 ver1.2 和整届 Z
 
 ## 管理后台
 
-发布工作流从 Worker 读取已确认的公告，并使用 `src/papers.json` 和 `resources/editions/` 生成后续届次。使用 [后台部署说明](admin-worker/README.md) 完成首次配置或从公告后台升级。
+发布工作流从 Worker 读取已提交发布的公告、当前届次和日程，并使用 `src/papers.json` 和 `resources/editions/` 生成后续届次。使用 [后台部署说明](admin-worker/README.md) 完成首次配置或升级。

@@ -1,12 +1,27 @@
 # AvePhO 管理后台
 
-唯一管理员使用密码登录，可管理公告和发布试卷。官网由 GitHub Pages 提供，访客可以直接浏览并下载。
+唯一管理员使用密码登录，可管理公告、试卷、当前届次与赛事日程。官网由 GitHub Pages 提供，访客可以直接浏览并下载。
+
+## 已上线试卷管理的升级步骤
+
+将更新合并到 `main` 并拉取到本机后，在包含原 `wrangler.jsonc` 的 `admin-worker` 目录运行：
+
+    npx wrangler d1 migrations apply avepho-admin --remote --config wrangler.jsonc
+    npx wrangler deploy --config wrangler.jsonc
+
+本次迁移 `0003_edition_schedule.sql` 新建届次日程设置表。后台沿用现有 GitHub App 权限和导出密钥。部署 Worker 后，用原密码登录并打开「届次与日程」。
+
+## 编辑当前届次与赛事日程
+
+填写届次和举办年份，按实际安排添加日程节点。所有日期时间按北京时间（UTC+08:00）填写。节点可填结束时间、关联已发布公告，并提供繁中、英文和日文名称。缺少译名时，官网显示简中名称。状态可按时间自动判定，也可手动设定。
+
+点「保存草稿」可提前准备。到预定公开日期后，打开已保存的草稿，点「发布到官网」。部署完成后点「核对官网」，再查看首页和完整日程。按钮只发布届次和日程，试卷和公告在各自的后台页面发布。若启动部署失败，可点「重试部署」。
 
 ## 已有公告后台的升级步骤
 
 1. 将这次更新作为 PR 合入 GitHub 仓库的 `main` 分支。拉取最新代码到本机。
 2. 在 GitHub App **AvePhO Publisher → Permissions & events → Repository permissions**，将 **Contents** 设为 **Read and write**，保留 **Actions: Read and write**。保存后，在 App 的安装页面接受新权限，并确认安装范围仍是 AvePhO 仓库。发布试卷时，App 需要能够更新 `main` 分支。
-3. 把原来部署用的 `wrangler.jsonc` 复制到更新后的 `admin-worker` 目录，保持其为本地文件。在该目录运行 `npx wrangler deploy`。沿用已配置的密码、环境变量、密钥与 D1 数据库，这次升级没有新的数据库迁移。
+3. 把原来部署用的 `wrangler.jsonc` 复制到更新后的 `admin-worker` 目录，保持其为本地文件。按上文运行 D1 迁移和 Worker 部署命令。沿用已配置的密码、环境变量、密钥与 D1 数据库。
 
 ## 发布一届试卷
 
@@ -55,7 +70,7 @@
 
 ## 本地验证
 
-在仓库根目录运行 `node admin-worker/verify.mjs`，需要 Node.js 24 和 Python 3。测试覆盖公告的发布与撤回、试卷上传权限、并发更新冲突、发布重试、补传答案和四语归档。测试使用 SQLite 和模拟的 GitHub、GitHub Pages 响应。生产环境验收需要用部署后的 Worker 核对登录和实际发布。
+在仓库根目录运行 `node admin-worker/verify.mjs`，需要 Node.js 24 和 Python 3。测试覆盖公告、试卷、届次与日程的发布，包含草稿保密、部署重试和四语页面。测试使用 SQLite 和模拟的 GitHub、GitHub Pages 响应。生产环境验收需要用部署后的 Worker 核对登录和实际发布。
 
 ## 参考
 

@@ -3,6 +3,12 @@ about	关于 AvePhO	關於 AvePhO	About AvePhO	AvePhOについて
 news	新闻通告	新聞通告	Announcements	お知らせ
 rules	赛事章程	賽事章程	Participation guide	参加案内
 schedule	赛事日程	賽事日程	Schedule	日程
+no_schedule	暂无已公布的日程。	暫無已公布的日程。	No dates have been announced.	公表済みの日程はありません。
+schedule_upcoming	未开始	未開始	Upcoming	開始前
+schedule_ongoing	进行中	進行中	In progress	実施中
+schedule_completed	已完成	已完成	Completed	終了
+related_notice	相关公告	相關公告	Related notice	関連のお知らせ
+first_schedule_history	首届资料发布记录	首屆資料發布記錄	First-edition release history	第1回の資料公開履歴
 papers	历届试题	歷屆試題	Past papers	過去問題
 team	组委会	組委會	Organizers	運営
 faq	常见问题	常見問題	FAQ	よくある質問

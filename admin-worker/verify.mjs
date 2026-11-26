@@ -16,6 +16,7 @@ migrate('0001_announcements.sql');
 database.exec("INSERT INTO sessions VALUES ('old-session', '1234', 9999999999)");
 database.exec("INSERT INTO announcements VALUES ('migration-test', 'Existing draft', 'Example', 1)");
 migrate('0002_password_sessions.sql');
+migrate('0003_edition_schedule.sql');
 assert.equal(database.prepare('SELECT COUNT(*) AS count FROM sessions').get().count, 0);
 assert.equal(database.prepare('SELECT title FROM announcements WHERE id = ?').get('migration-test').title, 'Existing draft');
 database.exec("DELETE FROM announcements WHERE id = 'migration-test'");
@@ -68,6 +69,7 @@ const env = {
 };
 let failDispatch = true;
 let servedRelease = null;
+let servedSchedule = null;
 let servedPapers = {};
 let catalog = [];
 let head = 'base';
@@ -96,7 +98,7 @@ globalThis.fetch = async (url, options) => {
       Response.json({ html_url: 'https://github.com/ChihayaAnonQyan/AvePhO/actions/runs/77' });
   }
   if (url.startsWith('https://chihayaanonqyan.github.io/AvePhO/release.json?')) {
-    return Response.json({ releaseId: servedRelease, paperRevisions: servedPapers });
+    return Response.json({ releaseId: servedRelease, paperRevisions: servedPapers, scheduleReleaseId: servedSchedule });
   }
   const prefix = 'https://api.github.com/repos/ChihayaAnonQyan/AvePhO';
   if (url.startsWith(prefix)) {
@@ -157,6 +159,7 @@ function login(value, origin = env.ADMIN_ORIGIN) {
   });
 }
 assert.equal((await request('/api/announcements')).status, 401);
+assert.equal((await request('/api/edition')).status, 401);
 assert.equal((await request('/internal/release')).status, 401);
 assert.equal((await request('/auth/callback?code=unused')).status, 404);
 assert.equal((await login(password, 'https://other.test')).status, 403);
@@ -189,7 +192,9 @@ assert.equal((await post('save', { title: 'X', body: 'Y' }, 'https://other.test'
 const draft = await (await post('save', { title: '联调测试公告', body: '发布测试 <script>alert(1)</script>' })).json();
 assert.equal(draft.revision, 1);
 assert.equal((await request('/api/announcements', { headers: auth }).then((r) => r.json())).drafts[0].id, draft.id);
-assert.deepEqual(await exported(), { releaseId: null, announcements: [] });
+assert.deepEqual(await exported(), {
+  releaseId: null, announcements: [], scheduleReleaseId: null, editionSchedule: null,
+});
 assert.equal((await post('save', { ...draft, revision: 0 })).status, 409);
 
 assert.equal((await post('publish', draft)).status, 502);
@@ -257,6 +262,45 @@ assert.equal((await paperList()).editions[0].state, 'pending');
 servedPapers = { 2: solutionsForm.get('revision') };
 assert.equal((await paperList()).editions[0].state, 'live');
 const bothPdfs = { catalog: JSON.stringify(catalog), files: new Map(repositoryFiles) };
+
+const getEdition = () => request('/api/edition', { headers: auth }).then((response) => response.json());
+assert.deepEqual((await getEdition()).draft, { number: 1, year: 2026, events: [] });
+const firstEvent = {
+  titles: { 'zh-CN': '测试节点 <试题>', 'zh-TW': '', en: 'Fixture exam', ja: '' },
+  starts: '2030-01-16T08:00', ends: '2030-01-16T11:00', status: 'auto', announcement: draft.id,
+};
+const laterEvent = {
+  titles: { 'zh-CN': '测试资料公开', 'zh-TW': '', en: '', ja: '資料公開テスト' },
+  starts: '2030-01-17T09:00', ends: '', status: 'completed', announcement: '',
+};
+const editionDraft = { revision: 0, number: 2, year: 2030, events: [laterEvent, firstEvent] };
+assert.equal((await post('edition/save', editionDraft, 'https://other.test')).status, 403);
+assert.equal((await post('edition/publish', { revision: 0 })).status, 409);
+assert.equal((await post('edition/save', {
+  ...editionDraft, events: [{ ...firstEvent, starts: '2030-02-30T08:00', ends: '' }],
+})).status, 400);
+assert.equal((await post('edition/save', {
+  ...editionDraft, events: [{ ...firstEvent, ends: firstEvent.starts }],
+})).status, 400);
+assert.equal((await post('edition/save', editionDraft)).status, 200);
+assert.equal((await post('edition/save', editionDraft)).status, 409);
+assert.deepEqual((await getEdition()).draft.events.map((entry) => entry.starts), [firstEvent.starts, laterEvent.starts]);
+assert.equal((await exported()).editionSchedule, null);
+failDispatch = true;
+assert.equal((await post('edition/publish', { revision: 1 })).status, 502);
+const scheduled = await exported();
+assert.equal(scheduled.editionSchedule.number, 2);
+assert.equal((await getEdition()).release.state, 'pending');
+assert.equal((await post('edition/publish', { revision: 1 })).status, 409);
+assert.equal((await post('edition/save', { ...editionDraft, revision: 1, number: 3 })).status, 200);
+assert.deepEqual(await exported(), scheduled);
+assert.equal((await post('edition/publish', { revision: 2 })).status, 409);
+failDispatch = false;
+assert.equal((await post('edition/retry', {})).status, 202);
+assert.equal((await post('edition/check', {}).then((r) => r.json())).release.state, 'pending');
+servedSchedule = scheduled.scheduleReleaseId;
+assert.equal((await post('edition/check', {}).then((r) => r.json())).release.state, 'live');
+assert.equal((await post('edition/publish', { revision: 1 })).status, 409);
 assert.equal((await post('logout', {})).status, 303);
 assert.equal((await request('/api/announcements', { headers: auth })).status, 401);
 
@@ -317,8 +361,38 @@ try {
     const marker = JSON.parse(readFileSync(join(build, 'release.json'), 'utf8'));
     assert.equal(marker.paperRevisions[2], JSON.parse(stage.catalog)[0].revision);
   }
+  const snapshotFile = join(temp, 'scheduled.json');
+  for (const includeNotice of [false, true]) {
+    const build = join(temp, includeNotice ? 'with-notice' : 'without-notice');
+    writeFileSync(snapshotFile, JSON.stringify(includeNotice ? {
+      ...scheduled, ...published,
+      editionSchedule: scheduled.editionSchedule, scheduleReleaseId: scheduled.scheduleReleaseId,
+    } : scheduled));
+    const buildResult = spawnSync('python3', [
+      'src/build.py', '--output', build, '--announcements', snapshotFile,
+    ], { cwd: checkout, encoding: 'utf8' });
+    assert.equal(buildResult.status, 0, buildResult.stderr);
+    const verifyResult = spawnSync('python3', ['src/verify.py', '--output', build], { cwd: checkout, encoding: 'utf8' });
+    assert.equal(verifyResult.status, 0, verifyResult.stderr);
+    const expected = {
+      '': ['第二届 AvePhO', '测试节点 &lt;试题&gt;'], 'zh-TW': ['第二屆 AvePhO', '测试节点 &lt;试题&gt;'],
+      en: ['AvePhO Edition 2', 'Fixture exam'], ja: ['第2回 AvePhO', '資料公開テスト'],
+    };
+    for (const [locale, [title, eventTitle]] of Object.entries(expected)) {
+      const home = readFileSync(join(build, locale, 'index.html'), 'utf8');
+      const timeline = readFileSync(join(build, locale, 'schedule.html'), 'utf8');
+      assert.ok(home.includes('<h1>' + title + '</h1>'));
+      assert.ok(home.includes('resources/editions/2/paper.pdf'));
+      assert.ok(timeline.includes(eventTitle));
+      assert.ok(timeline.includes('datetime="2030-01-16T08:00:00+08:00"'));
+      assert.ok(timeline.includes('notice-paper.html'));
+      assert.equal(timeline.includes('announcement-' + draft.id + '.html'), includeNotice);
+    }
+    assert.equal(JSON.parse(readFileSync(join(build, 'release.json'))).scheduleReleaseId, servedSchedule);
+  }
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }
 console.log('Login, authorization, draft persistence, public export, retry, publish and withdrawal verified locally.');
 console.log('Paper upload, ref conflicts, deploy retries, adding solutions, four locales and original PDF bytes verified locally.');
+console.log('Edition draft privacy, publication retry, schedule states, localized timelines and linked notices verified locally.');
