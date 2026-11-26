@@ -14,6 +14,7 @@ from zipfile import ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'src'
 TEXT = json.loads((SOURCE / 'originals.json').read_text())
+MASCOTS = json.loads((SOURCE / 'mascots.json').read_text())
 LABELS = dict((row[0], row[1:]) for row in csv.reader((SOURCE/'labels.tsv').read_text().splitlines(), delimiter='\t'))
 LANGUAGES = [('zh-CN','简体中文'),('zh-TW','繁體中文'),('en','English'),('ja','日本語')]
 PAGES = dict(zip('home about news rules schedule papers team faq contact thanks journal1 journal2 edition search'.split(),
@@ -130,6 +131,33 @@ def chinese_number(number):
         return digits[hundreds] + '百零' + digits[remainder]
     suffix = chinese_number(remainder)
     return digits[hundreds] + '百' + ('一' if remainder < 20 else '') + suffix
+
+
+def mascot_markup(locale_index, prefix, label):
+    options = '\n'.join(
+        f'<option value="{prefix}assets/mascots/{character["id"]}.webp" '
+        f'data-character="{character["id"]}" data-lines="{escape(json.dumps(character["lines"], ensure_ascii=False))}">'
+        f'{escape(character["names"][locale_index])}</option>'
+        for character in MASCOTS
+    )
+    return f'''<aside class="mascot" popover="manual" aria-label="{label("mascot")}" hidden>
+  <div class="mascot-content">
+    <p id="mascot-bubble" class="mascot-bubble" lang="zh-CN" role="status" hidden></p>
+    <button type="button" class="mascot-portrait" data-talk="{label("mascot_talk")}"
+            aria-description="{label("mascot_move")}"
+            aria-controls="mascot-bubble" aria-expanded="false">
+      <img alt="" width="1706" height="2048" draggable="false">
+    </button>
+    <button type="button" class="mascot-settings" aria-label="{label("mascot_settings")}"
+            aria-controls="mascot-controls" aria-expanded="false">⋯</button>
+    <div id="mascot-controls" class="mascot-controls" hidden>
+      <label for="mascot-select">{label("mascot_select")}</label>
+      <select id="mascot-select">{options}</select>
+      <button type="button" class="mascot-hide">{label("mascot_hide")}</button>
+    </div>
+  </div>
+  <button type="button" class="mascot-show" hidden>{label("mascot_show")}</button>
+</aside>'''
 
 
 def generate(i, lang, output, announcements, editions, schedule, now, admin_url):
@@ -267,12 +295,13 @@ def generate(i, lang, output, announcements, editions, schedule, now, admin_url)
         choices=''.join(f'<option value="{prefix}{local+"/" if j else ""}{pages[key]}.html" {"selected" if j==i else ""}>{name}</option>' for j,(local,name) in enumerate(LANGUAGES))
         nav=''.join(link(k,cls='active' if k==key else '') for k in ['home','news','papers','schedule','about','team'])
         content=body if key=='home' else f'<section class="sheet"><h1>{word(key)}</h1>{body}</section>'
+        mascot = mascot_markup(i, prefix, word) if key == 'home' else ''
         (folder/(pages[key]+'.html')).write_text(f'''<!doctype html>
 <html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{word(key)} · AvePhO</title><link rel="stylesheet" href="{prefix}assets/site.css"></head>
 <body data-empty="{word('nothing')}"><header><div class="bar"><a class="brand" href="index.html">AvePhO</a><div class="tools">{link('search')}
 <select aria-label="{word('language')}" id="lang">{choices}</select><button id="theme" aria-label="{word('theme')}" title="{word('theme')}">◐</button></div></div>
-<nav>{nav}</nav></header><main>{content}</main><footer><b>AvePhO</b><div>{''.join(link(k) for k in ['rules','faq','contact','thanks'])}{admin}<a href="#">{word('top')}</a></div></footer>
+<nav>{nav}</nav></header><main>{content}</main>{mascot}<footer><b>AvePhO</b><div>{''.join(link(k) for k in ['rules','faq','contact','thanks'])}{admin}<a href="#">{word('top')}</a></div></footer>
 <script src="{prefix}assets/site.js"></script>{'<script src="search-index.js"></script><script src="'+prefix+'assets/search.js"></script>' if key=='search' else ''}</body></html>''')
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
