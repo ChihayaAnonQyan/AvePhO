@@ -7,3 +7,92 @@
 .schedule-time, .schedule-meta { color: var(--muted); font-size: .92rem; }
 .schedule-entry time { display: inline; }
 .schedule-meta { display: flex; flex-wrap: wrap; gap: .7rem; }
+.mascot {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  pointer-events: none;
+  overflow: hidden;
+}
+.mascot::backdrop { background: transparent; pointer-events: none; }
+.mascot-content {
+  position: absolute;
+  width: min(clamp(7.25rem, 17.25vw, 14.5rem), 40vh, calc(100vw - 24px));
+}
+.mascot-portrait {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  cursor: grab;
+  touch-action: none;
+  pointer-events: auto;
+}
+.mascot-portrait[data-dragging] { cursor: grabbing; }
+.mascot-portrait img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
+}
+.mascot-settings, .mascot-show {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.mascot-show {
+  right: max(.75rem, env(safe-area-inset-right));
+  bottom: max(.75rem, env(safe-area-inset-bottom));
+}
+.mascot-settings, .mascot-show, .mascot-controls select, .mascot-hide {
+  min-height: 2.75rem;
+  padding: .3rem .65rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.mascot-settings {
+  min-width: 2.75rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.2rem;
+}
+.mascot-bubble, .mascot-controls {
+  position: absolute;
+  margin: 0;
+  padding: .7rem .9rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  width: max-content;
+  max-width: min(16rem, var(--mascot-panel-width));
+  max-height: var(--mascot-panel-height);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+.mascot-controls { width: min(13rem, var(--mascot-panel-width)); }
+.mascot-controls label, .mascot-controls select { display: block; width: 100%; }
+.mascot-controls select { margin: .2rem 0 .55rem; }
+.mascot-hide { cursor: pointer; }
+.mascot-content[data-align="start"] > :is(.mascot-bubble, .mascot-controls) { left: 0; }
+.mascot-content[data-align="end"] > :is(.mascot-bubble, .mascot-controls) { right: 0; }
+.mascot-content[data-open="above"] > :is(.mascot-bubble, .mascot-controls) { bottom: calc(100% + 6px); }
+.mascot-content[data-open="below"] > :is(.mascot-bubble, .mascot-controls) { top: calc(100% + 6px); }

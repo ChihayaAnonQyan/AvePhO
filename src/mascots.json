@@ -1,0 +1,27 @@
+[
+  {
+    "id": "sakiko",
+    "names": ["丰川祥子", "豐川祥子", "Sakiko Togawa", "豊川祥子"],
+    "lines": ["客服小祥很不高兴为您服务", "真是高高在上呢", "我来成为神明"]
+  },
+  {
+    "id": "umiri",
+    "names": ["八幡海铃", "八幡海鈴", "Umiri Yahata", "八幡海鈴"],
+    "lines": ["请您相信AvePhO！"]
+  },
+  {
+    "id": "uika",
+    "names": ["三角初华", "三角初華", "Uika Misumi", "三角初華"],
+    "lines": ["saki酱！saki酱！saki酱！saki酱！saki酱！", "不要从我身边夺走小祥！"]
+  },
+  {
+    "id": "nyamu",
+    "names": ["祐天寺若麦", "祐天寺若麥", "Nyamu Yutenji", "祐天寺にゃむ"],
+    "lines": ["扣你几喵母喵母！"]
+  },
+  {
+    "id": "mutsumi",
+    "names": ["若叶睦", "若葉睦", "Mutsumi Wakaba", "若葉睦"],
+    "lines": ["。", "全都不会做！", "我从来没觉得学物理竞赛开心过"]
+  }
+]
