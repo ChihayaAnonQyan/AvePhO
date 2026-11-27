@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from zipfile import ZipFile
 from hashlib import sha256
+from urllib.parse import urlsplit
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=Path, default=Path(__file__).resolve().parents[1])
@@ -21,15 +22,23 @@ class PageCheck(HTMLParser):
         for name, url in attrs:
             if name in ('href', 'src') or (tag, name) == ('option', 'value'):
                 if not url.startswith(('https:', 'mailto:', '#')):
-                    assert (self.path.parent/url).is_file(), (self.path, url)
+                    reference = urlsplit(url)
+                    target = self.path.parent / reference.path
+                    assert target.is_file(), (self.path, url)
+                    if reference.query.startswith('v='):
+                        assert reference.query == 'v=' + sha256(target.read_bytes()).hexdigest()[:16], (self.path, url)
 
 locales = [ROOT, ROOT/'zh-TW', ROOT/'en', ROOT/'ja']
 pages = [page for locale in locales for page in locale.glob('*.html')]
 announcement_pages = list(ROOT.glob('announcement-*.html'))
 marker = ROOT/'release.json'
-paper_revisions = json.loads(marker.read_text()).get('paperRevisions', {}) if marker.is_file() else {}
-edition_names = [f'edition-{number}.html' for number in paper_revisions]
-assert len(pages) == 56 + 4 * (len(announcement_pages) + len(edition_names))
+release = json.loads(marker.read_text()) if marker.is_file() else {}
+paper_revisions = release.get('paperRevisions', {})
+edition_numbers = set(paper_revisions) | {str(number) for number in release.get('editorialEditions', [])}
+edition_names = [f'edition-{number}.html' for number in edition_numbers]
+article_names = [f'article-{id}.html' for id in release.get('articleIds', [])]
+base_pages = 60 if (ROOT/'articles.html').is_file() else 56
+assert len(pages) == base_pages + 4 * (len(announcement_pages) + len(edition_names) + len(article_names))
 for path in pages:
     check = PageCheck(path)
     check.feed(path.read_text())
@@ -37,7 +46,7 @@ for path in pages:
 for path in (locale/'search-index.js' for locale in locales):
     data = json.loads(path.read_text().removeprefix('const searchIndex = ').removesuffix(';'))
     assert any('avephysica@outlook.com' in item['text'] for item in data)
-    for name in [page.name for page in announcement_pages] + edition_names:
+    for name in [page.name for page in announcement_pages] + edition_names + article_names:
         assert (path.parent / name).is_file()
         assert any(item['url'] == name for item in data)
 hashes = {'paper.pdf': 'baa7cdcd9cf12187016c4a47b078d83df17b89f8dbca95054d262a5afef30dac',

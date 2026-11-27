@@ -3,6 +3,7 @@ import argparse
 import csv
 import json
 import re
+from hashlib import sha256
 from html import escape, unescape
 from pathlib import Path
 from shutil import copy2, copytree
@@ -10,15 +11,21 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 from uuid import UUID
 from zipfile import ZipFile
+from editorial import article_content, check_editorial, merge_editions, release_entry, rich_content
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'src'
+RICH_DIR = ROOT / 'admin-worker' / 'web'
 TEXT = json.loads((SOURCE / 'originals.json').read_text())
 MASCOTS = json.loads((SOURCE / 'mascots.json').read_text())
 LABELS = dict((row[0], row[1:]) for row in csv.reader((SOURCE/'labels.tsv').read_text().splitlines(), delimiter='\t'))
+SITE_ASSETS = {
+    name: f'assets/{name}?v={sha256((ROOT / "assets" / name).read_bytes()).hexdigest()[:16]}'
+    for name in ('site.css', 'site.js')
+}
 LANGUAGES = [('zh-CN','简体中文'),('zh-TW','繁體中文'),('en','English'),('ja','日本語')]
-PAGES = dict(zip('home about news rules schedule papers team faq contact thanks journal1 journal2 edition search'.split(),
-                 'index about announcements regulations schedule papers committee faq contact acknowledgements notice-paper notice-solutions edition-2026 search'.split()))
+PAGES = dict(zip('home about news rules schedule papers team faq contact thanks journal1 journal2 edition search articles'.split(),
+                 'index about announcements regulations schedule papers committee faq contact acknowledgements notice-paper notice-solutions edition-2026 search articles'.split()))
 MAIL = '<a href="mailto:avephysica@outlook.com">avephysica@outlook.com</a>'
 SCHEDULE_STATES = ('upcoming', 'ongoing', 'completed')
 SCHEDULE_OFFSET = '+08:00'
@@ -79,7 +86,10 @@ def release_snapshot(path):
             raise ValueError('Invalid announcement length')
         if datetime.fromisoformat(entry['publishedAt']).utcoffset() is None:
             raise ValueError('Publication timestamps need a timezone')
+        if entry.get('format', 'plain') not in ('plain', 'markdown'):
+            raise ValueError('Invalid announcement format')
     validate_schedule(snapshot)
+    check_editorial(snapshot)
     return snapshot
 
 
@@ -160,7 +170,7 @@ def mascot_markup(locale_index, prefix, label):
 </aside>'''
 
 
-def generate(i, lang, output, announcements, editions, schedule, now, admin_url):
+def generate(i, lang, output, announcements, editions, schedule, articles, now, admin_url):
     prefix = '' if i == 0 else '../'
     folder = output if not i else output/lang
     folder.mkdir(exist_ok=True)
@@ -179,6 +189,10 @@ def generate(i, lang, output, announcements, editions, schedule, now, admin_url)
     for item in announcements:
         pages[item['id']] = 'announcement-' + item['id']
         titles[item['id']] = item['title']
+    for item in articles:
+        key = 'article-' + item['id']
+        pages[key] = key
+        titles[key] = item['title']
 
     def word(key):
         return escape(titles[key])
@@ -191,10 +205,16 @@ def generate(i, lang, output, announcements, editions, schedule, now, admin_url)
     def edition_files(edition):
         folder = f"editions/{edition['number']}/"
         versions = edition['files']
-        downloads = file(folder + 'paper.pdf', 'theory', 'PDF · ' + versions['paper'])
-        if 'solutions' in versions:
-            downloads += file(folder + 'solutions.pdf', 'solutions', 'PDF · ' + versions['solutions'])
-        return downloads + file(folder + 'all.zip', 'allfiles', 'ZIP')
+        scheduled = edition.get('scheduled', {})
+        downloads = ''
+        for kind, label in [('paper', 'theory'), ('solutions', 'solutions')]:
+            if kind in scheduled:
+                downloads += release_entry(kind, scheduled[kind], word, admin_url, now)
+            elif kind in versions:
+                downloads += file(folder + kind + '.pdf', label, 'PDF · ' + versions[kind])
+        if versions and not scheduled:
+            downloads += file(folder + 'all.zip', 'allfiles', 'ZIP')
+        return downloads
     info = ' · '.join(word(k) for k in ['questions','points','hours'])
     dates = [(item['id'], item['publishedAt'][:10].replace('-', '.')) for item in announcements]
     dates += [('journal2', '2026.07.04'), ('journal1', '2026.06.27')]
@@ -231,6 +251,9 @@ def generate(i, lang, output, announcements, editions, schedule, now, admin_url)
     facts = '<div class="facts">'+info+'</div>'
     current_year = schedule['year'] if schedule else 2026
     current_number = schedule['number'] if schedule else 1
+    if editions and editions[0]['number'] >= current_number:
+        current_year = editions[0]['year']
+        current_number = editions[0]['number']
     current_title = word('edition') if current_number == 1 else escape(edition_title(current_number))
     current_paper = next((edition for edition in editions
                           if edition['number'] == current_number and edition['year'] == current_year), None)
@@ -245,7 +268,19 @@ def generate(i, lang, output, announcements, editions, schedule, now, admin_url)
     first_edition_dates = feed([row for row in dates if row[0] in ('journal1', 'journal2')])
     home_schedule = facts + first_edition_dates
     schedule_body = feed()
-    if schedule:
+    managed_editions = [edition for edition in editions if 'scheduled' in edition]
+    def publication_rows(edition):
+        entries = sorted(edition['scheduled'].items(), key=lambda entry: entry[1]['opensAt'])
+        return ''.join(release_entry(kind, item, word, admin_url, now, timeline=True)
+                       for kind, item in entries) or '<p>' + word('no_schedule') + '</p>'
+    if managed_editions:
+        if current_paper and 'scheduled' in current_paper:
+            home_schedule = publication_rows(current_paper) + link('schedule', cls='textlink')
+        schedule_body = ''.join(
+            f"<h2>{word('edition-' + str(edition['number']))} · {edition['year']}</h2>" + publication_rows(edition)
+            for edition in managed_editions)
+        schedule_body += heading('first_schedule_history') + first_edition_dates
+    elif schedule:
         events = sorted(schedule['events'], key=lambda event: event['starts'])
         home_schedule = event_rows(events[:3]) + link('schedule', cls='textlink')
         schedule_body = (f'<h2>{current_title} · {current_year}</h2>' + event_rows(events)
@@ -260,6 +295,8 @@ def generate(i, lang, output, announcements, editions, schedule, now, admin_url)
         'home': homepage, 'news':feed(), 'about':'<p>'+word('lead')+'</p>'+heading('original')+original('about'),
         'rules':'<p>'+word('rulesnote')+'</p><p>'+word('advice')+'</p>'+link('about',cls='button'),
         'schedule':schedule_body, 'papers':link('edition',cls='textlink')+files,
+        'articles':feed([('article-' + item['id'], item['publishedAt'][:10]) for item in articles])
+                    or '<p>' + word('articles_empty') + '</p>',
         'edition':archive+heading('errata')+'<p>'+word('errstate')+'</p>'+MAIL,
         'team':heading('paperteam')+'<div class="people">'+''.join('<strong>'+name+'</strong>' for name in ['l','整点薯条','羽','户山香澄'])+'</div>',
         'thanks':'<p>'+word('credit')+'</p>'+link('team',cls='textlink'),
@@ -286,23 +323,31 @@ def generate(i, lang, output, announcements, editions, schedule, now, admin_url)
         bodies[key]+=file(kind+'.pdf', attachment,'PDF')
     for item in announcements:
         metadata = f'{item["publishedAt"][:10]} · {word("original")}'
-        paragraphs = ''.join(f'<p>{escape(line)}</p>' for line in item['body'].splitlines() if line.strip())
-        bodies[item['id']] = f'<p class="meta">{metadata}</p><div lang="zh-CN" class="prose">{paragraphs}</div>'
+        if item.get('format') == 'markdown':
+            body = rich_content(item['body'])
+        else:
+            paragraphs = ''.join(f'<p>{escape(line)}</p>' for line in item['body'].splitlines() if line.strip())
+            body = f'<div lang="zh-CN" class="prose">{paragraphs}</div>'
+        bodies[item['id']] = f'<p class="meta">{metadata}</p>{body}'
+    for item in articles:
+        bodies['article-' + item['id']] = article_content(item, word, admin_url)
     index = [{'title':titles[k],'url':pages[k]+'.html','text':unescape(re.sub(r'<[^>]+>',' ',body))} for k,body in bodies.items() if k not in ('search','home')]
     (folder/'search-index.js').write_text('const searchIndex = '+json.dumps(index,ensure_ascii=False)+';')
     admin = f'<a href="{escape(admin_url)}">{word("admin")}</a>' if admin_url else ''
     for key,body in bodies.items():
         choices=''.join(f'<option value="{prefix}{local+"/" if j else ""}{pages[key]}.html" {"selected" if j==i else ""}>{name}</option>' for j,(local,name) in enumerate(LANGUAGES))
-        nav=''.join(link(k,cls='active' if k==key else '') for k in ['home','news','papers','schedule','about','team'])
+        nav=''.join(link(k,cls='active' if k==key or (k=='articles' and key.startswith('article-')) else '')
+                    for k in ['home','news','papers','schedule','articles','about','team'])
         content=body if key=='home' else f'<section class="sheet"><h1>{word(key)}</h1>{body}</section>'
         mascot = mascot_markup(i, prefix, word) if key == 'home' else ''
+        rich_script = f'<script type="module" src="{prefix}assets/rich/rich.mjs"></script>' if ' data-rich' in body else ''
         (folder/(pages[key]+'.html')).write_text(f'''<!doctype html>
 <html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{word(key)} · AvePhO</title><link rel="stylesheet" href="{prefix}assets/site.css"></head>
+<title>{word(key)} · AvePhO</title><link rel="stylesheet" href="{prefix}{SITE_ASSETS['site.css']}"></head>
 <body data-empty="{word('nothing')}"><header><div class="bar"><a class="brand" href="index.html">AvePhO</a><div class="tools">{link('search')}
 <select aria-label="{word('language')}" id="lang">{choices}</select><button id="theme" aria-label="{word('theme')}" title="{word('theme')}">◐</button></div></div>
 <nav>{nav}</nav></header><main>{content}</main>{mascot}<footer><b>AvePhO</b><div>{''.join(link(k) for k in ['rules','faq','contact','thanks'])}{admin}<a href="#">{word('top')}</a></div></footer>
-<script src="{prefix}assets/site.js"></script>{'<script src="search-index.js"></script><script src="'+prefix+'assets/search.js"></script>' if key=='search' else ''}</body></html>''')
+<script src="{prefix}{SITE_ASSETS['site.js']}"></script>{rich_script}{'<script src="search-index.js"></script><script src="'+prefix+'assets/search.js"></script>' if key=='search' else ''}</body></html>''')
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, help='Empty directory for a standalone public build')
@@ -324,14 +369,25 @@ def main():
         copytree(ROOT / 'assets', output / 'assets')
         copytree(ROOT / 'resources', output / 'resources',
                  ignore=lambda path, _names: {'editions'} if Path(path) == ROOT / 'resources' else set())
-    editions = paper_catalog(output)
+    legacy_papers = paper_catalog(output)
+    editor_editions = release.get('editorialEditions', [])
+    articles = release.get('articles', [])
+    editions = merge_editions(legacy_papers, editor_editions)
+    if articles or any(item.get('format') == 'markdown' for item in release['announcements']):
+        rich_assets = output / 'assets' / 'rich'
+        rich_assets.mkdir(parents=True, exist_ok=True)
+        copy2(RICH_DIR / 'rich.mjs', rich_assets)
+        copytree(RICH_DIR / 'vendor', rich_assets / 'vendor', dirs_exist_ok=True)
     now = datetime.now(timezone.utc)
     for idx, (language, _) in enumerate(LANGUAGES):
-        generate(idx, language, output, release['announcements'], editions, release.get('editionSchedule'), now, args.admin_url)
+        generate(idx, language, output, release['announcements'], editions, release.get('editionSchedule'),
+                 articles, now, args.admin_url.rstrip('/'))
     (output / 'release.json').write_text(json.dumps({
         'releaseId': release['releaseId'],
         'scheduleReleaseId': release.get('scheduleReleaseId'),
-        'paperRevisions': {edition['number']: edition['revision'] for edition in editions},
+        'paperRevisions': {edition['number']: edition['revision'] for edition in legacy_papers},
+        'editorialEditions': [edition['number'] for edition in editor_editions],
+        'articleIds': [item['id'] for item in articles],
     }))
 
 

@@ -43,3 +43,40 @@ li button { text-align: left; width: 100%; overflow-wrap: anywhere; }
 #preview-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 650px) { .columns { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .schedule-event .paper-fields { grid-template-columns: 1fr; gap: 0; } }
+
+.admin-layout:not([hidden]) {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.admin-sidebar, .admin-work {
+  background: white;
+  border: 1px solid #e1d4e3;
+  border-radius: 1rem;
+  padding: 1rem;
+  min-width: 0;
+}
+.admin-sidebar { position: sticky; top: 1rem; }
+.management-nav { display: grid; gap: .5rem; }
+.management-nav button { text-align: left; width: 100%; }
+.admin-work .track { padding: .8rem; }
+.admin-work .columns { grid-template-columns: minmax(9rem, 1fr) minmax(0, 2fr); }
+.admin-work .columns section { margin-bottom: 0; min-width: 0; }
+.draft-list { display: flex; flex-wrap: wrap; gap: .5rem; margin: .65rem 0 1rem; }
+.draft-list li { margin: 0; }
+.resource-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+.resource-grid fieldset { min-width: 0; padding: .7rem; border: 1px solid #e1d4e3; border-radius: .75rem; }
+.resource-grid select { display: block; width: 100%; font: inherit; margin: .25rem 0 .75rem; }
+.resource-current { overflow-wrap: anywhere; margin: 0 0 .5rem; color: #615668; }
+.rich-preview { margin-top: .75rem; padding: .75rem; border: 1px solid #e1d4e3; border-radius: .75rem; overflow-wrap: anywhere; }
+.rich-preview img { max-width: 100%; height: auto; }
+.rich-preview pre { overflow: auto; }
+#preview-body.rich-preview { white-space: normal; }
+#editor-deployment { margin-top: 1.2rem; }
+@media (max-width: 760px) {
+  .admin-layout:not([hidden]), .admin-work .columns, .resource-grid { grid-template-columns: 1fr; }
+  .admin-sidebar { position: static; }
+  .management-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .management-nav button { text-align: center; padding-inline: .25rem; }
+}

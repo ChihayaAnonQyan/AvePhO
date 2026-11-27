@@ -17,13 +17,17 @@
       <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
       <button id="sign-in-button" type="submit">登录</button>
     </form>
-    <div id="dashboard" hidden>
-      <nav class="actions management-nav" aria-label="后台功能">
-        <button id="announcements-tab" type="button" aria-pressed="true" aria-controls="announcements-panel">公告管理</button>
-        <button id="papers-tab" type="button" aria-pressed="false" aria-controls="papers-panel">试卷管理</button>
-        <button id="edition-tab" type="button" aria-pressed="false" aria-controls="edition-panel">届次与日程</button>
-      </nav>
-      <div id="announcements-panel">
+    <div id="dashboard" class="admin-layout" hidden>
+      <aside class="admin-sidebar">
+        <nav class="management-nav" aria-label="发布管理">
+          <button id="papers-tab" type="button" aria-pressed="true" aria-controls="papers-panel">发布试卷</button>
+          <button id="announcements-tab" type="button" aria-pressed="false" aria-controls="announcements-panel">发布通告</button>
+          <button id="article-tab" type="button" aria-pressed="false" aria-controls="article-panel">发布文章</button>
+        </nav>
+        <form method="post" action="/api/logout"><button>退出登录</button></form>
+      </aside>
+      <div class="admin-work">
+      <div id="announcements-panel" hidden>
         <section class="track">
           <p id="release-status"></p>
           <div class="actions">
@@ -41,7 +45,7 @@
             <h2>编辑公告</h2>
             <form id="editor">
               <label for="title">标题</label><input id="title" maxlength="120" required>
-              <label for="body">正文</label><textarea id="body" rows="10" maxlength="5000" required></textarea>
+              <label for="body">正文（支持 Markdown 和 LaTeX）</label><textarea id="body" rows="10" maxlength="5000" required></textarea>
               <div class="actions">
                 <button type="submit">保存草稿</button>
                 <button id="preview" type="button">预览</button>
@@ -50,100 +54,69 @@
               </div>
             </form>
             <article id="preview-panel" hidden>
-              <strong>预览</strong><h3 id="preview-title"></h3><p id="preview-body"></p>
+              <strong>预览</strong><h3 id="preview-title"></h3><div id="preview-body" class="rich-preview"></div>
             </article>
           </section>
         </div>
       </div>
-      <div id="papers-panel" hidden>
-        <p id="paper-status" role="status"></p>
-        <div class="columns">
-          <section>
-            <div class="row"><h2>已登记届次</h2><button id="paper-new" type="button">新增届次</button></div>
-            <ul id="paper-list"></ul>
-            <div class="actions">
-              <button id="paper-check" type="button">核对官网</button>
-              <button id="paper-retry" type="button" hidden>重试部署</button>
+        <div id="papers-panel">
+          <div class="row"><h2>发布试卷</h2><button id="new-edition" type="button">新增届次</button></div>
+          <ul id="edition-items" class="draft-list" aria-label="届次草稿"></ul>
+          <form id="edition-form">
+            <div class="paper-fields">
+              <label>届次<input id="editor-edition-number" type="number" min="2" max="999" required></label>
+              <label>举办年份<input id="editor-edition-year" type="number" min="2026" max="9999" required></label>
             </div>
-            <a id="paper-run" href="https://github.com/ChihayaAnonQyan/AvePhO/actions/workflows/pages.yml">查看 GitHub 部署记录</a>
-          </section>
-          <section>
-            <h2 id="paper-form-title">新增届次</h2>
-            <form id="paper-editor" method="post" action="/api/papers/publish" enctype="multipart/form-data">
-              <div class="paper-fields">
-                <div><label for="paper-number">届次</label><input id="paper-number" name="number" type="number" min="2" max="999" required></div>
-                <div><label for="paper-year">举办年份</label><input id="paper-year" name="year" type="number" min="2026" max="9999" required></div>
-              </div>
-              <p id="paper-current" hidden></p>
-              <p id="pdf-limit">每份 PDF 最多 10 MiB。答案可以之后补传。</p>
-              <label for="paper-file">理论试题 PDF</label>
-              <input id="paper-file" name="paper" type="file" accept=".pdf,application/pdf" aria-describedby="pdf-limit" required>
-              <label for="paper-version">试题版本</label>
-              <input id="paper-version" name="paperVersion" maxlength="32" placeholder="v1.0" required>
-              <label for="solutions-file">答案与评分标准 PDF</label>
-              <input id="solutions-file" name="solutions" type="file" accept=".pdf,application/pdf" aria-describedby="pdf-limit">
-              <label for="solutions-version">答案版本</label>
-              <input id="solutions-version" name="solutionsVersion" maxlength="32" placeholder="v1.0">
-              <button id="paper-publish" type="submit">发布到官网</button>
-            </form>
-          </section>
+            <p>时间按北京时间填写（UTC+08:00）。公开届次后，预定时间会自动显示在官网。</p>
+            <div class="resource-grid">
+              <fieldset id="editor-paper">
+                <legend>试题 PDF</legend>
+                <label>上传文件<input class="resource-file" type="file" accept=".pdf,application/pdf"></label>
+                <p class="resource-current"></p>
+                <label>文件版本<input class="resource-version" maxlength="32" value="v1.0"></label>
+                <label>公开方式<select class="resource-mode"><option value="now">随届次公开</option><option value="later">定时公开</option></select></label>
+                <label class="resource-time" hidden>公开时间<input class="resource-at" type="datetime-local"></label>
+              </fieldset>
+              <fieldset id="editor-solutions">
+                <legend>答案 PDF</legend>
+                <label>上传文件<input class="resource-file" type="file" accept=".pdf,application/pdf"></label>
+                <p class="resource-current"></p>
+                <label>文件版本<input class="resource-version" maxlength="32" value="v1.0"></label>
+                <label>公开方式<select class="resource-mode"><option value="now">随届次公开</option><option value="later">定时公开</option></select></label>
+                <label class="resource-time" hidden>公开时间<input class="resource-at" type="datetime-local"></label>
+              </fieldset>
+            </div>
+            <div class="actions">
+              <button type="submit">保存草稿</button>
+              <button id="edition-release-button" type="button" disabled>公开届次</button>
+            </div>
+          </form>
+        </div>
+        <div id="article-panel" hidden>
+          <div class="row"><h2>发布文章</h2><button id="new-article" type="button">新建文章</button></div>
+          <ul id="article-items" class="draft-list" aria-label="文章草稿"></ul>
+          <form id="article-form">
+            <label>标题<input id="article-title" maxlength="120" required></label>
+            <label>正文（支持 Markdown 和 LaTeX）<textarea id="article-body" rows="11" maxlength="12000" required></textarea></label>
+            <div class="paper-fields">
+              <label>插入图片<input id="article-image-upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+              <label>添加 PDF 附件<input id="article-attachment-upload" type="file" accept=".pdf,application/pdf"></label>
+            </div>
+            <ul id="article-files"></ul>
+            <div class="actions">
+              <button type="submit">保存草稿</button>
+              <button id="article-preview" type="button">预览</button>
+              <button id="article-release-button" type="button" disabled>公开文章</button>
+              <button id="article-withdraw" type="button" disabled>撤回文章</button>
+            </div>
+          </form>
+          <div id="article-preview-panel" class="rich-preview" hidden></div>
+        </div>
+        <div id="editor-deployment" class="actions">
+          <button id="editor-retry" type="button">重新部署官网</button>
+          <a id="editor-run" href="https://github.com/ChihayaAnonQyan/AvePhO/actions/workflows/pages.yml">查看部署记录</a>
         </div>
       </div>
-      <div id="edition-panel" hidden>
-        <section>
-          <h2>当前届次与赛事日程</h2>
-          <p id="edition-status" role="status"></p>
-          <p id="edition-release"></p>
-          <form id="edition-editor">
-            <fieldset id="edition-fields" disabled>
-              <legend class="visually-hidden">届次设置</legend>
-              <div class="paper-fields">
-                <div><label for="edition-number">当前届次</label><input id="edition-number" type="number" min="1" max="999" required></div>
-                <div><label for="edition-year">举办年份</label><input id="edition-year" type="number" min="2026" max="9999" required></div>
-              </div>
-              <p>日程时间使用北京时间（UTC+08:00）。草稿可提前保存，发布后访客可见。</p>
-              <div id="schedule-list"></div>
-              <div class="actions">
-                <button id="schedule-add" type="button">添加日程节点</button>
-                <button type="submit">保存草稿</button>
-                <button id="edition-publish" type="button" disabled>发布到官网</button>
-              </div>
-            </fieldset>
-          </form>
-          <div class="actions edition-deployment">
-            <button id="edition-check" type="button" hidden>核对官网</button>
-            <button id="edition-retry" type="button" hidden>重试部署</button>
-            <a id="edition-run" href="https://github.com/ChihayaAnonQyan/AvePhO/actions/workflows/pages.yml" hidden>查看 GitHub 部署记录</a>
-          </div>
-        </section>
-      </div>
-      <template id="schedule-event">
-        <fieldset class="schedule-event">
-          <legend>日程节点</legend>
-          <label>节点名称<input data-field="zh-CN" maxlength="80" required></label>
-          <div class="paper-fields">
-            <label>开始时间<input type="datetime-local" data-field="starts" required></label>
-            <label>结束时间（可选）<input type="datetime-local" data-field="ends"></label>
-          </div>
-          <div class="paper-fields">
-            <label>状态<select data-field="status">
-              <option value="auto">按时间自动判定</option>
-              <option value="upcoming">未开始</option>
-              <option value="ongoing">进行中</option>
-              <option value="completed">已完成</option>
-            </select></label>
-            <label>相关公告（可选）<select data-field="announcement"><option value="">无</option></select></label>
-          </div>
-          <details>
-            <summary>其他语言的名称（可选）</summary>
-            <label>繁體中文<input data-field="zh-TW" maxlength="80"></label>
-            <label>English<input data-field="en" maxlength="80"></label>
-            <label>日本語<input data-field="ja" maxlength="80"></label>
-          </details>
-          <button type="button" data-remove>移除此节点</button>
-        </fieldset>
-      </template>
-      <form method="post" action="/api/logout"><button>退出登录</button></form>
     </div>
   </main>
 </body>
