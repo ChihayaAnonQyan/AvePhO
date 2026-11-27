@@ -18,6 +18,11 @@ related_notice	相关公告	相關公告	Related notice	関連のお知らせ
 first_schedule_history	首届资料发布记录	首屆資料發布記錄	First-edition release history	第1回の資料公開履歴
 papers	历届试题	歷屆試題	Past papers	過去問題
 team	组委会	組委會	Organizers	運営
+committee_teams	每届命题组	每屆命題組	Problem-setting teams by edition	各回の出題チーム
+committee_members	命题委员会	命題委員會	Problem-setting committee	出題委員会
+committee_title	AvePhO 命题委员	AvePhO 命題委員	AvePhO Problem-setting Committee Members	AvePhO 出題委員
+committee_no_teams	暂无公开的命题组名单。	暫無公開的命題組名單。	No team rosters have been published.	出題チームの名簿はまだ公開されていません。
+committee_no_members	暂无公开的委员名单。	暫無公開的委員名單。	No committee members have been announced.	委員の名簿はまだ公開されていません。
 faq	常见问题	常見問題	FAQ	よくある質問
 contact	联系我们	聯絡我們	Contact	お問い合わせ
 thanks	特别鸣谢	特別鳴謝	Acknowledgements	謝辞

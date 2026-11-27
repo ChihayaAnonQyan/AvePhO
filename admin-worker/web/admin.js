@@ -1,5 +1,6 @@
 import { setupEditor } from './editor.js';
 import { renderRich } from './rich.mjs';
+import { setupCommitteeEditor } from './committee-editor.js';
 
 const el = (id) => document.getElementById(id);
 let selected = null;
@@ -135,18 +136,21 @@ el('retry').onclick = () => void perform(async () => {
   await load(true);
 }, '已发起重试。');
 
-const panels = ['papers', 'announcements', 'article'];
+const panels = ['papers', 'announcements', 'article', 'committee'];
+const committee = setupCommitteeEditor({ el, api, showLogin });
 function showPanel(panel) {
   for (const name of panels) {
     el(name + '-panel').hidden = name !== panel;
     el(name + '-tab').setAttribute('aria-pressed', name === panel);
   }
-  el('editor-deployment').hidden = panel === 'announcements';
+  el('editor-deployment').hidden = panel === 'announcements' || panel === 'committee';
+  if (panel === 'committee') void committee.load();
 }
 const editor = setupEditor({ el, api, flash, showLogin });
 for (const panel of panels) el(panel + '-tab').onclick = () => showPanel(panel);
 async function loadDashboard() {
   await Promise.all([load(), editor.load()]);
+  if (!el('committee-panel').hidden) await committee.load();
 }
 el('sign-in').addEventListener('submit', async (event) => {
   event.preventDefault();
