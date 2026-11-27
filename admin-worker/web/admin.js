@@ -1,12 +1,11 @@
-import { setupSchedule } from './schedule.js';
+import { setupEditor } from './editor.js';
+import { renderRich } from './rich.mjs';
 
 const el = (id) => document.getElementById(id);
 let selected = null;
 let published = {};
 let release = null;
 let busy = false;
-let selectedEdition = null;
-let paperRevision = null;
 
 function flash(text) { el('status').textContent = text; }
 
@@ -108,14 +107,14 @@ el('editor').onsubmit = (event) => {
   void perform(async () => {
     select(await api('save', {
       id: selected?.id, revision: selected?.revision,
-      title: el('title').value, body: el('body').value,
+      title: el('title').value, body: el('body').value, format: 'markdown',
     }));
     await load();
   }, '草稿已保存。');
 };
 el('preview').onclick = () => {
   el('preview-title').textContent = el('title').value;
-  el('preview-body').textContent = el('body').value;
+  el('preview-body').innerHTML = renderRich(el('body').value);
   el('preview-panel').hidden = false;
 };
 for (const action of ['publish', 'withdraw']) {
@@ -136,135 +135,19 @@ el('retry').onclick = () => void perform(async () => {
   await load(true);
 }, '已发起重试。');
 
-function editEdition(edition = null) {
-  selectedEdition = edition;
-  paperRevision = null;
-  el('paper-editor').reset();
-  el('paper-form-title').textContent = edition ? `更新第 ${edition.number} 届` : '新增届次';
-  for (const name of ['number', 'year']) {
-    el('paper-' + name).value = edition?.[name] ?? '';
-    el('paper-' + name).readOnly = Boolean(edition);
-  }
-  el('paper-file').required = !edition;
-  el('paper-version').required = !edition;
-  el('solutions-version').required = false;
-  el('paper-current').hidden = !edition;
-  if (edition) {
-    el('paper-current').textContent = `已登记试题 ${edition.files.paper}，答案 ${edition.files.solutions ?? '待补传'}。只需选择本次要上传的文件。`;
-  }
-}
-
-async function loadPapers() {
-  const { editions } = await api('papers');
-  const status = { live: '已上线', pending: '待上线', unknown: '暂无法核对' };
-  el('paper-list').replaceChildren();
-  for (const edition of [...editions].reverse()) {
-    const item = document.createElement('li');
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = `第 ${edition.number} 届 · ${edition.year}（${status[edition.state]}）`;
-    button.onclick = () => {
-      if (busy) return;
-      editEdition(edition);
-      el('paper-file').focus();
-    };
-    item.append(button);
-    el('paper-list').append(item);
-  }
-  el('paper-retry').hidden = !editions.some((edition) => edition.state !== 'live');
-  return editions;
-}
-
-async function paperAction(action) {
-  if (busy) return;
-  busy = true;
-  const controls = [...el('paper-editor').elements, el('paper-new')];
-  for (const control of controls) control.disabled = true;
-  const status = el('paper-status');
-  status.textContent = '正在处理…';
-  try { status.textContent = await action(); }
-  catch (error) {
-    if (error.status === 401) showLogin('登录已失效，请重新输入密码。');
-    status.textContent = error.message;
-  } finally {
-    for (const control of controls) control.disabled = false;
-    busy = false;
-  }
-}
-
+const panels = ['papers', 'announcements', 'article'];
 function showPanel(panel) {
-  for (const name of ['announcements', 'papers', 'edition']) {
+  for (const name of panels) {
     el(name + '-panel').hidden = name !== panel;
     el(name + '-tab').setAttribute('aria-pressed', name === panel);
   }
+  el('editor-deployment').hidden = panel === 'announcements';
 }
-
-setupSchedule({ el, api, showLogin, showPanel });
-el('announcements-tab').onclick = () => showPanel('announcements');
-el('papers-tab').onclick = () => {
-  showPanel('papers');
-  void paperAction(async () => {
-    const editions = await loadPapers();
-    return editions.length ? '' : '第一届原有资料已在官网。可在这里发布后续届次。';
-  });
-};
-el('paper-new').onclick = () => {
-  editEdition();
-  el('paper-number').focus();
-};
-el('paper-editor').oninput = () => {
-  paperRevision = null;
-  el('paper-version').required = !selectedEdition || Boolean(el('paper-file').files.length);
-  el('solutions-version').required = Boolean(el('solutions-file').files.length);
-};
-el('paper-editor').onsubmit = (event) => {
-  event.preventDefault();
-  if (busy) return;
-  const chosen = ['paper-file', 'solutions-file'].map((id) => el(id).files[0]).filter(Boolean);
-  if (!chosen.length || chosen.some((file) => file.size > 10 * 1024 * 1024)) {
-    el('paper-status').textContent = '请选择要上传的 PDF，每份最多 10 MiB。';
-    return;
-  }
-  if (!confirm('确认发布这些文件？试卷将写入官网使用的 GitHub 仓库。')) return;
-  const form = new FormData(event.currentTarget);
-  paperRevision ??= crypto.randomUUID();
-  form.set('revision', paperRevision);
-  form.set('previous', selectedEdition?.revision ?? '');
-  void paperAction(async () => {
-    let deployment;
-    try { deployment = await api('papers/publish', form); }
-    catch (error) {
-      try {
-        const editions = await loadPapers();
-        const saved = editions.find((edition) => edition.revision === form.get('revision'));
-        if (saved) editEdition(saved);
-      } catch { /* Keep the selected files when the result is unknown. */ }
-      throw error;
-    }
-    const number = Number(form.get('number'));
-    editEdition();
-    if (deployment.runUrl) el('paper-run').href = deployment.runUrl;
-    try {
-      const editions = await loadPapers();
-      const saved = editions.find((edition) => edition.number === number);
-      if (saved) editEdition(saved);
-      if (saved?.state === 'live') return '已核对，当前版本已在官网上线。';
-    } catch { /* Deployment was accepted even if refreshing the list failed. */ }
-    return '已提交部署。完成后点「核对官网」。';
-  });
-};
-el('paper-check').onclick = () => void paperAction(async () => {
-  const editions = await loadPapers();
-  if (!editions.length) return '暂无新增届次。';
-  if (editions.some((edition) => edition.state === 'unknown')) return '暂时无法读取官网状态。';
-  return editions.some((edition) => edition.state === 'pending') ? '仍有资料待上线。' : '所有已登记届次均已在官网上线。';
-});
-el('paper-retry').onclick = () => void paperAction(async () => {
-  const deployment = await api('papers/retry', {});
-  if (deployment.runUrl) el('paper-run').href = deployment.runUrl;
-  return '已发起重试。完成后点「核对官网」。';
-});
-
+const editor = setupEditor({ el, api, flash, showLogin });
+for (const panel of panels) el(panel + '-tab').onclick = () => showPanel(panel);
+async function loadDashboard() {
+  await Promise.all([load(), editor.load()]);
+}
 el('sign-in').addEventListener('submit', async (event) => {
   event.preventDefault();
   const password = el('password');
@@ -275,7 +158,7 @@ el('sign-in').addEventListener('submit', async (event) => {
   try {
     await request('/auth/login', { password: password.value });
     password.value = '';
-    await load(true);
+    await loadDashboard();
     el('sign-in').hidden = true;
     el('dashboard').hidden = false;
     flash('');
@@ -288,7 +171,7 @@ el('sign-in').addEventListener('submit', async (event) => {
 });
 
 try {
-  await load();
+  await loadDashboard();
   el('dashboard').hidden = false;
   flash('');
 } catch (error) {

@@ -30,6 +30,29 @@ for (const status of document.querySelectorAll('[data-starts]')) {
   status.textContent = status.dataset[key];
 }
 
+const fileStatuses = Array.from(document.querySelectorAll('[data-file-opens]'));
+if (fileStatuses.length) {
+  let nextUpdate;
+  function updateFileStatuses() {
+    clearTimeout(nextUpdate);
+    const now = Date.now();
+    let delay = Infinity;
+    for (const status of fileStatuses) {
+      const remaining = Date.parse(status.dataset.fileOpens) - now;
+      const open = remaining <= 0;
+      status.textContent = open ? status.dataset.available : status.dataset.pending;
+      const entry = status.closest('.scheduled-release');
+      entry.querySelector('[data-file-link]').hidden = !open;
+      entry.querySelector('[data-file-label]').hidden = open;
+      if (remaining > 0) delay = Math.min(delay, remaining);
+    }
+    if (Number.isFinite(delay)) nextUpdate = setTimeout(updateFileStatuses, Math.min(delay, 2147483647));
+  }
+  updateFileStatuses();
+  window.addEventListener('pageshow', updateFileStatuses);
+  document.addEventListener('visibilitychange', updateFileStatuses);
+}
+
 const mascot = document.querySelector('.mascot');
 if (mascot) {
   const picker = mascot.querySelector('#mascot-select');

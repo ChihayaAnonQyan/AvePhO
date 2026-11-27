@@ -55,3 +55,10 @@ enter	检索标题或正文	檢索標題或內文	Search titles or text	タイ�
 nothing	没有匹配的页面	沒有符合的頁面	No matching pages	一致するページがありません
 top	返回顶部	回到頂部	Back to top	ページの先頭へ
 admin	管理员入口	管理員入口	Admin	管理者入口
+articles	文章	文章	Articles	記事
+articles_empty	暂无公开文章。	暫無公開文章。	No articles have been published yet.	公開された記事はまだありません。
+article_attachments	附件	附件	Attachments	添付ファイル
+publish_paper	试题公开	試題公開	Problem paper release	問題公開
+publish_solutions	答案公开	答案公開	Solutions release	解答公開
+file_available	可下载	可下載	Available	ダウンロード可
+file_pending	待公开	待公開	Awaiting release	公開待ち

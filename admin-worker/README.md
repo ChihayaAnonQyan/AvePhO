@@ -1,40 +1,32 @@
 # AvePhO 管理后台
 
-唯一管理员使用密码登录，可管理公告、试卷、当前届次与赛事日程。官网由 GitHub Pages 提供，访客可以直接浏览并下载。
+管理员使用密码登录。左侧有「发布试卷」「发布通告」「发布文章」三个栏目。官网由 GitHub Pages 提供，定时公开的文件由现有 Worker 和 D1 提供下载。
 
-## 已上线试卷管理的升级步骤
+## 从旧版升级
 
-将更新合并到 `main` 并拉取到本机后，在包含原 `wrangler.jsonc` 的 `admin-worker` 目录运行：
+将更新合并到 `main` 并拉取到本机。在保留原 `wrangler.jsonc` 的 `admin-worker` 目录依次运行以下两条命令。
 
     npx wrangler d1 migrations apply avepho-admin --remote --config wrangler.jsonc
     npx wrangler deploy --config wrangler.jsonc
 
-本次迁移 `0003_edition_schedule.sql` 新建届次日程设置表。后台沿用现有 GitHub App 权限和导出密钥。部署 Worker 后，用原密码登录并打开「届次与日程」。
+迁移 `0004_publishing.sql` 使用现有 `avepho-admin` 数据库，沿用现有 GitHub App、管理员密码和密钥。Worker 部署成功后，在 GitHub 的 Actions 中对 `main` 运行一次 **Build and deploy AvePhO**，官网导航就会出现「文章」。
 
-## 编辑当前届次与赛事日程
+## 公开届次、试题和答案
 
-填写届次和举办年份，按实际安排添加日程节点。所有日期时间按北京时间（UTC+08:00）填写。节点可填结束时间、关联已发布公告，并提供繁中、英文和日文名称。缺少译名时，官网显示简中名称。状态可按时间自动判定，也可手动设定。
+1. 在「发布试卷」点「新增届次」，填写届数与年份。试题和答案分别选择「随届次公开」或「定时公开」。时间按北京时间（UTC+08:00）填写，每份 PDF 上限为 10 MiB。
+2. 点「保存草稿」可提前上传文件。准备向访客公布届次时，点「公开届次」。GitHub Actions 部署完成后，首页显示最新的公开届次，赛事日程提前列出试题和答案的公开时间。
+3. 已随届次发布的定时文件，到点即可下载。Worker 在下载请求到达时检查时间，文件开放时无需再部署。仅填写时间也可以公布日程。补传之后，保存草稿并点击「发布更新」，再确认官网部署完成。
 
-点「保存草稿」可提前准备。到预定公开日期后，打开已保存的草稿，点「发布到官网」。部署完成后点「核对官网」，再查看首页和完整日程。按钮只发布届次和日程，试卷和公告在各自的后台页面发布。若启动部署失败，可点「重试部署」。
+## 发布文章
 
-## 已有公告后台的升级步骤
-
-1. 将这次更新作为 PR 合入 GitHub 仓库的 `main` 分支。拉取最新代码到本机。
-2. 在 GitHub App **AvePhO Publisher → Permissions & events → Repository permissions**，将 **Contents** 设为 **Read and write**，保留 **Actions: Read and write**。保存后，在 App 的安装页面接受新权限，并确认安装范围仍是 AvePhO 仓库。发布试卷时，App 需要能够更新 `main` 分支。
-3. 把原来部署用的 `wrangler.jsonc` 复制到更新后的 `admin-worker` 目录，保持其为本地文件。按上文运行 D1 迁移和 Worker 部署命令。沿用已配置的密码、环境变量、密钥与 D1 数据库。
-
-## 发布一届试卷
-
-1. 登录后台，点「试卷管理 → 新增届次」。填写届数、实际举办年份和试题版本，选择试题 PDF。答案与评分标准 PDF 可以稍后补传。每份 PDF 上限为 10 MiB。
-2. 点「发布到官网」并确认。后台把 PDF 原件和试卷目录写入 GitHub，并启动 GitHub Pages 工作流。部署完成后，点「核对官网」，在「历届试题」打开该届页面检查下载。
-3. 要补传答案，打开已登记的届次，选择答案 PDF、填写版本，然后再次发布。已提供的资料会一起生成可下载的 ZIP。若文件已经存入 GitHub、部署启动失败，可点「重试部署」。
+在「发布文章」填写标题和正文。公式可写成 `$…$` 或用独占一行的 `$$` 包住多行公式。选择图片会在当前光标位置加入图片，PDF 会列在文章底部。预览并保存草稿后，点击「公开文章」。需要撤回时，在文章列表打开该篇文章并点击「撤回文章」。
 
 ## 配置顺序
 
-如果解压后已有 `wrangler.jsonc`，说明本包已预填 AvePhO 的地址和编号。可以直接从第 3 步开始。Windows 上打开 `admin-worker` 文件夹，在资源管理器地址栏输入 `cmd` 并回车，就能在该文件夹运行下列命令。
+以下步骤用于首次配置。Windows 上打开 `admin-worker` 文件夹，在资源管理器地址栏输入 `cmd` 并回车，就能在该文件夹运行下列命令。
 
 1. 在 Cloudflare 建立免费 D1 数据库 `avepho-admin`，在该账号的 Workers & Pages 中确定后台的 `workers.dev` 地址。复制 `wrangler.example.jsonc` 为 `wrangler.jsonc`。每个 `REPLACE` 都须替换，后台地址保留 `https://`，末尾去掉斜杠。
-2. 创建仅自己账号可安装的 GitHub App，用来写入试卷和启动自动部署。主页填官网，回调地址留空，关闭 Webhook。仓库权限选 **Contents: Read and write** 和 **Actions: Read and write**，保留 GitHub 自动设定的 **Metadata: Read-only**。把 App 仅安装到 `ChihayaAnonQyan/AvePhO`，填入其 Client ID 和 Installation ID。
+2. 创建仅自己账号可安装的 GitHub App，用来启动自动部署。主页填官网，回调地址留空，关闭 Webhook。配置 **Actions: Read and write**，保留 GitHub 自动设定的 **Metadata: Read-only**。把 App 仅安装到 `ChihayaAnonQyan/AvePhO`，填入其 Client ID 和 Installation ID。
 3. 在 `admin-worker` 目录用 Node.js 生成管理员密码和对应的校验值。把第一项存入自己的密码管理器，第二项用于 Cloudflare 设置。
 
        node generate-password.mjs
@@ -64,13 +56,13 @@
 
 ## 发一条公告
 
-填写标题和正文，点「预览」检查排版，点「保存草稿」保存。确认内容后点「发布」。等 GitHub 工作流成功，再点「核对官网」确认。想撤回时选中对应公告，点「撤回」，等部署并再次核对。公告从官网正文、列表及搜索中移除。历史首届两篇公告由原有静态来源保留。
+在「发布通告」填写标题和正文，正文支持 Markdown 和 LaTeX。点「预览」检查排版，再点「保存草稿」和「发布」。等 GitHub 工作流成功，再点「核对官网」确认。撤回时选中对应公告，点「撤回」，等部署并再次核对。历史首届两篇公告由原有静态来源保留。
 
 网络或部署失败时可通过 GitHub Actions 查看日志。修正后点「重试部署」，系统会继续同一份已保存的发布内容。后台一次处理一项待上线更新，确认发布结果后才能接受下一项发布或撤回。
 
 ## 本地验证
 
-在仓库根目录运行 `node admin-worker/verify.mjs`，需要 Node.js 24 和 Python 3。测试覆盖公告、试卷、届次与日程的发布，包含草稿保密、部署重试和四语页面。测试使用 SQLite 和模拟的 GitHub、GitHub Pages 响应。生产环境验收需要用部署后的 Worker 核对登录和实际发布。
+在仓库根目录运行 `node admin-worker/verify.mjs`，需要 Node.js 24 和 Python 3。测试覆盖草稿保密、试题和答案的公开边界、文章撤回、部署重试和四语页面。测试使用 SQLite 和模拟的 GitHub、GitHub Pages 响应。
 
 ## 参考
 

@@ -1,6 +1,8 @@
 import { base64url, dispatchPages, sha256 } from './github.mjs';
 import { paperResponse } from './papers.mjs';
 import { editionResponse, exportedEdition } from './edition.mjs';
+import { fileResponse, uploadChunk } from './editor-files.mjs';
+import { exportEditorial, publishingResponse } from './publishing.mjs';
 
 const SITE = 'https://chihayaanonqyan.github.io/AvePhO/';
 const SESSION = '__Host-avepho-session';
@@ -11,7 +13,7 @@ const headers = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
-  'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };
 const json = (body, status = 200) => Response.json(body, { status, headers });
 const fail = (message, status) => json({ error: message }, status);
@@ -105,6 +107,7 @@ async function exportRelease(request, env) {
   return json({
     releaseId: release?.id ?? null, announcements: fromSnapshot(release),
     ...await exportedEdition(env.DB),
+    ...await exportEditorial(env.DB),
   });
 }
 
@@ -152,6 +155,7 @@ async function queueRelease(db, id, revision, action) {
     entries.push({
       id, title: item.title, body: item.body, revision,
       publishedAt: published?.publishedAt ?? created,
+      ...(item.format === 'markdown' ? { format: 'markdown' } : {}),
     });
   }
   if (entries.length > 100 || JSON.stringify(entries).length > 200000) return null;
@@ -170,9 +174,13 @@ async function handle(request, env) {
   if (url.origin !== env.ADMIN_ORIGIN) return fail('请使用配置的后台网址。', 404);
   const { pathname: path } = url;
   const { method } = request;
+  if ((method === 'GET' || method === 'HEAD') && path.startsWith('/public/file/')) {
+    return fileResponse(request, env.DB, path.slice('/public/file/'.length));
+  }
   if (method === 'POST' && path === '/auth/login') return logIn(request, env);
   if (method === 'GET' && path === '/internal/release') return exportRelease(request, env);
-  if (method === 'GET' && ['/', '/admin.js', '/schedule.js', '/admin.css'].includes(path)) {
+  if (method === 'GET' && ['/', '/admin.js', '/schedule.js', '/admin.css', '/editor.js',
+    '/rich.mjs', '/vendor/markdown-it.mjs', '/vendor/katex.mjs'].includes(path)) {
     const asset = await env.ASSETS.fetch(request);
     const response = new Response(asset.body, asset);
     for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
@@ -185,6 +193,12 @@ async function handle(request, env) {
   const session = await env.DB.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND expires_at > ?')
     .bind(tokenHash, time()).first();
   if (!session) return fail('请重新输入密码登录。', 401);
+  if ((method === 'GET' || method === 'HEAD') && path.startsWith('/api/editor/file/')) {
+    return fileResponse(request, env.DB, path.slice('/api/editor/file/'.length), true);
+  }
+  if (method === 'GET' && path === '/api/editor/items') {
+    return json(...await publishingResponse(env, path));
+  }
   if (method === 'GET' && path === '/api/papers') return json(...await paperResponse(request, env, SITE, path));
   if (method === 'GET' && path === '/api/edition') {
     const announcements = fromSnapshot(await env.DB.prepare(
@@ -203,6 +217,10 @@ async function handle(request, env) {
   }
   if (method !== 'POST') return fail('找不到该操作。', 404);
   if (request.headers.get('origin') !== env.ADMIN_ORIGIN) return fail('请求来源无效。', 403);
+  if (path === '/api/editor/file') return json(...await uploadChunk(request, env.DB, url.searchParams));
+  if (['/api/editor/save', '/api/editor/publish', '/api/editor/withdraw', '/api/editor/deploy'].includes(path)) {
+    return json(...await publishingResponse(env, path, await readInput(request, 64 * 1024)));
+  }
   if (path === '/api/papers/publish' || path === '/api/papers/retry') {
     return json(...await paperResponse(request, env, SITE, path));
   }
@@ -226,15 +244,17 @@ async function handle(request, env) {
     }
     const title = payload.title.trim();
     const body = payload.body.trim();
+    const format = payload.format === 'markdown' ? 'markdown' : 'plain';
     const id = payload.id ?? crypto.randomUUID();
     if (payload.id !== undefined) {
-      const result = await env.DB.prepare('UPDATE announcements SET title = ?, body = ?, revision = revision + 1 WHERE id = ? AND revision = ?')
-        .bind(title, body, id, payload.revision ?? 0).run();
+      const result = await env.DB.prepare('UPDATE announcements SET title = ?, body = ?, format = ?, revision = revision + 1 WHERE id = ? AND revision = ?')
+        .bind(title, body, format, id, payload.revision ?? 0).run();
       if (!result.meta.changes) return fail('草稿已被修改，请刷新后重新编辑。', 409);
     } else {
-      await env.DB.prepare('INSERT INTO announcements VALUES (?, ?, ?, 1)').bind(id, title, body).run();
+      await env.DB.prepare('INSERT INTO announcements (id, title, body, revision, format) VALUES (?, ?, ?, 1, ?)')
+        .bind(id, title, body, format).run();
     }
-    return json({ id, title, body, revision: payload.id !== undefined ? payload.revision + 1 : 1 });
+    return json({ id, title, body, format, revision: payload.id !== undefined ? payload.revision + 1 : 1 });
   }
   if (path === '/api/publish' || path === '/api/withdraw') {
     if (typeof payload?.id !== 'string' || !Number.isInteger(payload?.revision)) return fail('请先保存草稿。', 400);

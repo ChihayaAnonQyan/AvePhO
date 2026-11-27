@@ -17,8 +17,10 @@ database.exec("INSERT INTO sessions VALUES ('old-session', '1234', 9999999999)")
 database.exec("INSERT INTO announcements VALUES ('migration-test', 'Existing draft', 'Example', 1)");
 migrate('0002_password_sessions.sql');
 migrate('0003_edition_schedule.sql');
+migrate('0004_publishing.sql');
 assert.equal(database.prepare('SELECT COUNT(*) AS count FROM sessions').get().count, 0);
 assert.equal(database.prepare('SELECT title FROM announcements WHERE id = ?').get('migration-test').title, 'Existing draft');
+assert.equal(database.prepare('SELECT format FROM announcements WHERE id = ?').get('migration-test').format, 'plain');
 database.exec("DELETE FROM announcements WHERE id = 'migration-test'");
 const DB = {
   prepare(sql) {
@@ -35,8 +37,9 @@ const DB = {
   async batch(operations) {
     database.exec('BEGIN');
     try {
-      for (const operation of operations) operation.run();
+      const results = operations.map((operation) => operation.run());
       database.exec('COMMIT');
+      return results;
     } catch (error) {
       database.exec('ROLLBACK');
       throw error;
@@ -194,6 +197,7 @@ assert.equal(draft.revision, 1);
 assert.equal((await request('/api/announcements', { headers: auth }).then((r) => r.json())).drafts[0].id, draft.id);
 assert.deepEqual(await exported(), {
   releaseId: null, announcements: [], scheduleReleaseId: null, editionSchedule: null,
+  editorialEditions: [], articles: [],
 });
 assert.equal((await post('save', { ...draft, revision: 0 })).status, 409);
 
@@ -301,12 +305,95 @@ assert.equal((await post('edition/check', {}).then((r) => r.json())).release.sta
 servedSchedule = scheduled.scheduleReleaseId;
 assert.equal((await post('edition/check', {}).then((r) => r.json())).release.state, 'live');
 assert.equal((await post('edition/publish', { revision: 1 })).status, 409);
+const upload = async (bytes, name, mime) => {
+  const id = crypto.randomUUID();
+  const chunkBytes = 512 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
+    const query = new URLSearchParams({ id, name, mime, size: bytes.length, part: offset / chunkBytes });
+    const result = await request('/api/editor/file?' + query, {
+      method: 'POST', headers: { ...auth, origin: env.ADMIN_ORIGIN },
+      body: bytes.subarray(offset, offset + chunkBytes),
+    });
+    assert.equal(result.status, 200, await result.clone().text());
+    assert.equal((await result.json()).ready, offset + chunkBytes >= bytes.length);
+  }
+  return id;
+};
+const saveEditor = async (kind, draft, id = crypto.randomUUID(), revision = 0) => {
+  const result = await post('editor/save', { kind, revision, id, draft });
+  assert.equal(result.status, 200, await result.clone().text());
+  return (await result.json()).item;
+};
+const saveAndPublish = async (item) => {
+  const result = await post('editor/publish', { id: item.id, revision: item.revision });
+  assert.equal(result.status, 202, await result.clone().text());
+  assert.equal((await result.json()).deployed, true);
+};
+const paperId = await upload(pdfs.paper, '试题.pdf', 'application/pdf');
+const solutionsId = await upload(pdfs.solutions, '答案.pdf', 'application/pdf');
+const publicPath = (id) => '/public/file/' + id;
+assert.equal((await request('/api/editor/file/' + paperId)).status, 401);
+assert.equal((await request('/api/editor/file/' + paperId, { headers: auth, method: 'HEAD' })).status, 200);
+assert.equal((await request(publicPath(paperId))).status, 404);
+const paperAt = '2090-12-25T08:00';
+const solutionsAt = '2090-12-27T08:00';
+const editionData = {
+  number: 3, year: 2090, files: {
+    paper: { id: paperId, at: paperAt, version: 'v1.0' },
+    solutions: { id: null, at: solutionsAt, version: '' },
+  },
+};
+const editionItem = await saveEditor('edition', editionData);
+assert.deepEqual((await exported()).editorialEditions, []);
+await saveAndPublish(editionItem);
+assert.equal((await exported()).editorialEditions[0].files.solutions.id, null);
+editionData.files.solutions = { id: solutionsId, at: solutionsAt, version: 'v1.1' };
+const revisedEdition = await saveEditor('edition', editionData, editionItem.id, editionItem.revision);
+assert.equal((await exported()).editorialEditions[0].files.solutions.id, null);
+await saveAndPublish(revisedEdition);
+const firstMoment = Date.parse(paperAt + ':00+08:00');
+const secondMoment = Date.parse(solutionsAt + ':00+08:00');
+const realNow = Date.now;
+try {
+  Date.now = () => firstMoment - 1;
+  const early = await request(publicPath(paperId));
+  assert.equal(early.status, 404);
+  assert.equal(early.headers.get('cache-control'), 'no-store');
+  Date.now = () => firstMoment;
+  assert.equal((await request(publicPath(paperId), { method: 'HEAD' })).status, 200);
+  assert.deepEqual(Buffer.from(await (await request(publicPath(paperId))).arrayBuffer()), pdfs.paper);
+  Date.now = () => secondMoment - 1;
+  assert.equal((await request(publicPath(solutionsId))).status, 404);
+  Date.now = () => secondMoment;
+  assert.deepEqual(Buffer.from(await (await request(publicPath(solutionsId))).arrayBuffer()), pdfs.solutions);
+} finally {
+  Date.now = realNow;
+}
+const imageBytes = readFileSync(join(publicRoot, 'assets', 'mascots', 'sakiko.webp'));
+const imageId = await upload(imageBytes, '示意图.webp', 'image/webp');
+const attachmentId = await upload(pdfs.paper, '附录.pdf', 'application/pdf');
+const article = await saveEditor('article', {
+  title: '文章样例', body: '# 推导\n\n$E=mc^2$\n\n![图](asset:' + imageId + ')\n\n<script>alert(2)</script>',
+  images: [{ id: imageId, name: '示意图.webp' }], attachments: [{ id: attachmentId, name: '附录.pdf' }],
+});
+assert.deepEqual((await exported()).articles, []);
+assert.equal((await request(publicPath(imageId))).status, 404);
+await saveAndPublish(article);
+const richDraft = await (await post('save', { title: '公式通告', body: '$F=ma$', format: 'markdown' })).json();
+assert.equal((await post('publish', richDraft)).status, 202);
+const editorialSnapshot = await exported();
+assert.equal(editorialSnapshot.announcements.find((item) => item.id === richDraft.id).format, 'markdown');
+assert.deepEqual(Buffer.from(await (await request(publicPath(imageId))).arrayBuffer()), imageBytes);
+assert.equal((await request(publicPath(attachmentId), { method: 'HEAD' })).status, 200);
+assert.equal((await post('editor/withdraw', { id: article.id, revision: article.revision })).status, 202);
+assert.deepEqual((await exported()).articles, []);
+assert.equal((await request(publicPath(imageId))).status, 404);
 assert.equal((await post('logout', {})).status, 303);
 assert.equal((await request('/api/announcements', { headers: auth })).status, 401);
 
 const temp = mkdtempSync(join(tmpdir(), 'avepho-check-'));
 try {
-  for (const [name, data] of Object.entries({ published, withdrawn })) {
+  for (const [name, data] of Object.entries({ published, withdrawn, editorialSnapshot })) {
     const file = join(temp, name + '.json');
     const build = join(temp, name);
     writeFileSync(file, JSON.stringify(data));
@@ -328,6 +415,22 @@ try {
       const page = readFileSync(notice, 'utf8');
       assert.ok(page.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
       assert.ok(!page.includes('<script>alert(1)</script>'));
+    } else if (name === 'editorialSnapshot') {
+      const page = readFileSync(join(build, 'article-' + article.id + '.html'), 'utf8');
+      assert.match(page, /data-rich/);
+      assert.match(page, /\$E=mc\^2\$/);
+      assert.match(page, /&lt;script&gt;alert\(2\)&lt;\/script&gt;/);
+      assert.ok(page.includes(publicPath(attachmentId)));
+      assert.match(readFileSync(join(build, 'index.html'), 'utf8'), /第三届 AvePhO/);
+      const timeline = readFileSync(join(build, 'schedule.html'), 'utf8');
+      assert.match(timeline, /试题公开/);
+      assert.match(timeline, /答案公开/);
+      assert.match(timeline, /2090-12-25T08:00:00\+08:00/);
+      assert.ok(timeline.includes(publicPath(paperId)));
+      assert.ok(!timeline.includes('测试节点'));
+      const notice = readFileSync(join(build, 'announcement-' + richDraft.id + '.html'), 'utf8');
+      assert.match(notice, /data-rich/);
+      assert.ok(existsSync(join(build, 'assets', 'rich', 'vendor', 'katex.mjs')));
     }
   }
   const checkout = join(temp, 'checkout');
@@ -396,3 +499,4 @@ try {
 console.log('Login, authorization, draft persistence, public export, retry, publish and withdrawal verified locally.');
 console.log('Paper upload, ref conflicts, deploy retries, adding solutions, four locales and original PDF bytes verified locally.');
 console.log('Edition draft privacy, publication retry, schedule states, localized timelines and linked notices verified locally.');
+console.log('Scheduled PDF release at both boundaries, article withdrawal and rich public pages verified locally.');
