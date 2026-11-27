@@ -1,5 +1,6 @@
 const theme = document.querySelector('#theme');
 const locale = document.querySelector('#lang');
+const committee = document.querySelector('.committee-layout');
 function readPref(key) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
@@ -16,13 +17,27 @@ theme.addEventListener('click', () => {
 });
 locale.addEventListener('change', () => {
   savePref('avepho-language', String(locale.selectedIndex));
-  location.href = locale.value;
+  location.href = locale.value + (committee ? location.hash : '');
 });
 if (document.documentElement.lang === 'zh-CN' && /\/(index\.html)?$/.test(location.pathname)) {
   const choice = Number(readPref('avepho-language'));
   if (choice > 0 && locale.options[choice]) location.replace(locale.options[choice].value);
 }
 const now = Date.now();
+if (committee) {
+  const sections = [...committee.querySelectorAll('[data-committee-section]')];
+  const links = [...committee.querySelectorAll('.committee-nav a')];
+  function showCommitteeSection() {
+    const current = sections.find((section) => '#' + section.id === location.hash) ?? sections[0];
+    for (const section of sections) section.hidden = section !== current;
+    for (const link of links) {
+      if (link.hash === '#' + current.id) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    }
+  }
+  showCommitteeSection();
+  window.addEventListener('hashchange', showCommitteeSection);
+}
 for (const status of document.querySelectorAll('[data-starts]')) {
   const { starts, ends } = status.dataset;
   const key = now < Date.parse(starts) ? 'upcoming'

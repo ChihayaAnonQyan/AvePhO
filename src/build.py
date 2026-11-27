@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 from zipfile import ZipFile
 from editorial import article_content, check_editorial, merge_editions, release_entry, rich_content
+from committee import check_committee, committee_content
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'src'
@@ -90,6 +91,7 @@ def release_snapshot(path):
             raise ValueError('Invalid announcement format')
     validate_schedule(snapshot)
     check_editorial(snapshot)
+    check_committee(snapshot)
     return snapshot
 
 
@@ -170,7 +172,7 @@ def mascot_markup(locale_index, prefix, label):
 </aside>'''
 
 
-def generate(i, lang, output, announcements, editions, schedule, articles, now, admin_url):
+def generate(i, lang, output, announcements, editions, schedule, articles, committee, now, admin_url):
     prefix = '' if i == 0 else '../'
     folder = output if not i else output/lang
     folder.mkdir(exist_ok=True)
@@ -298,7 +300,7 @@ def generate(i, lang, output, announcements, editions, schedule, articles, now, 
         'articles':feed([('article-' + item['id'], item['publishedAt'][:10]) for item in articles])
                     or '<p>' + word('articles_empty') + '</p>',
         'edition':archive+heading('errata')+'<p>'+word('errstate')+'</p>'+MAIL,
-        'team':heading('paperteam')+'<div class="people">'+''.join('<strong>'+name+'</strong>' for name in ['l','整点薯条','羽','户山香澄'])+'</div>',
+        'team':committee_content(committee, word, edition_title),
         'thanks':'<p>'+word('credit')+'</p>'+link('team',cls='textlink'),
         'contact':heading('errata')+'<p>'+word('errstate')+'</p>'+MAIL,
         'faq':''.join('<details><summary>'+word(q)+'</summary><p>'+word(a)+'</p>'+extra+'</details>' for q,a,extra in [('practice','advice',''),('downloadq','downloadanswer',link('edition'))]),
@@ -338,7 +340,8 @@ def generate(i, lang, output, announcements, editions, schedule, articles, now, 
         choices=''.join(f'<option value="{prefix}{local+"/" if j else ""}{pages[key]}.html" {"selected" if j==i else ""}>{name}</option>' for j,(local,name) in enumerate(LANGUAGES))
         nav=''.join(link(k,cls='active' if k==key or (k=='articles' and key.startswith('article-')) else '')
                     for k in ['home','news','papers','schedule','articles','about','team'])
-        content=body if key=='home' else f'<section class="sheet"><h1>{word(key)}</h1>{body}</section>'
+        page_class = 'sheet committee-sheet' if key == 'team' else 'sheet'
+        content=body if key=='home' else f'<section class="{page_class}"><h1>{word(key)}</h1>{body}</section>'
         mascot = mascot_markup(i, prefix, word) if key == 'home' else ''
         rich_script = f'<script type="module" src="{prefix}assets/rich/rich.mjs"></script>' if ' data-rich' in body else ''
         (folder/(pages[key]+'.html')).write_text(f'''<!doctype html>
@@ -372,6 +375,8 @@ def main():
     legacy_papers = paper_catalog(output)
     editor_editions = release.get('editorialEditions', [])
     articles = release.get('articles', [])
+    published_committee = release.get('committee')
+    committee = published_committee or json.loads((SOURCE / 'committee.json').read_text())
     editions = merge_editions(legacy_papers, editor_editions)
     if articles or any(item.get('format') == 'markdown' for item in release['announcements']):
         rich_assets = output / 'assets' / 'rich'
@@ -381,13 +386,14 @@ def main():
     now = datetime.now(timezone.utc)
     for idx, (language, _) in enumerate(LANGUAGES):
         generate(idx, language, output, release['announcements'], editions, release.get('editionSchedule'),
-                 articles, now, args.admin_url.rstrip('/'))
+                 articles, committee, now, args.admin_url.rstrip('/'))
     (output / 'release.json').write_text(json.dumps({
         'releaseId': release['releaseId'],
         'scheduleReleaseId': release.get('scheduleReleaseId'),
         'paperRevisions': {edition['number']: edition['revision'] for edition in legacy_papers},
         'editorialEditions': [edition['number'] for edition in editor_editions],
         'articleIds': [item['id'] for item in articles],
+        'committeeRevision': published_committee['revision'] if published_committee else None,
     }))
 
 

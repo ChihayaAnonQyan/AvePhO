@@ -3,6 +3,7 @@ import { paperResponse } from './papers.mjs';
 import { editionResponse, exportedEdition } from './edition.mjs';
 import { fileResponse, uploadChunk } from './editor-files.mjs';
 import { exportEditorial, publishingResponse } from './publishing.mjs';
+import { committeeResponse, exportedCommittee } from './committee.mjs';
 
 const SITE = 'https://chihayaanonqyan.github.io/AvePhO/';
 const SESSION = '__Host-avepho-session';
@@ -108,6 +109,7 @@ async function exportRelease(request, env) {
     releaseId: release?.id ?? null, announcements: fromSnapshot(release),
     ...await exportedEdition(env.DB),
     ...await exportEditorial(env.DB),
+    committee: await exportedCommittee(env.DB),
   });
 }
 
@@ -180,7 +182,7 @@ async function handle(request, env) {
   if (method === 'POST' && path === '/auth/login') return logIn(request, env);
   if (method === 'GET' && path === '/internal/release') return exportRelease(request, env);
   if (method === 'GET' && ['/', '/admin.js', '/schedule.js', '/admin.css', '/editor.js',
-    '/rich.mjs', '/vendor/markdown-it.mjs', '/vendor/katex.mjs'].includes(path)) {
+    '/committee-editor.js', '/rich.mjs', '/vendor/markdown-it.mjs', '/vendor/katex.mjs'].includes(path)) {
     const asset = await env.ASSETS.fetch(request);
     const response = new Response(asset.body, asset);
     for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
@@ -198,6 +200,9 @@ async function handle(request, env) {
   }
   if (method === 'GET' && path === '/api/editor/items') {
     return json(...await publishingResponse(env, path));
+  }
+  if (method === 'GET' && path === '/api/committee') {
+    return json(...await committeeResponse(env, 'read'));
   }
   if (method === 'GET' && path === '/api/papers') return json(...await paperResponse(request, env, SITE, path));
   if (method === 'GET' && path === '/api/edition') {
@@ -217,6 +222,9 @@ async function handle(request, env) {
   }
   if (method !== 'POST') return fail('找不到该操作。', 404);
   if (request.headers.get('origin') !== env.ADMIN_ORIGIN) return fail('请求来源无效。', 403);
+  if (['/api/committee/save', '/api/committee/publish', '/api/committee/check'].includes(path)) {
+    return json(...await committeeResponse(env, path.split('/').at(-1), await readInput(request, 256 * 1024), SITE));
+  }
   if (path === '/api/editor/file') return json(...await uploadChunk(request, env.DB, url.searchParams));
   if (['/api/editor/save', '/api/editor/publish', '/api/editor/withdraw', '/api/editor/deploy'].includes(path)) {
     return json(...await publishingResponse(env, path, await readInput(request, 64 * 1024)));

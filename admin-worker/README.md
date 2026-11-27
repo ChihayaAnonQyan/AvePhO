@@ -1,6 +1,6 @@
 # AvePhO 管理后台
 
-管理员使用密码登录。左侧有「发布试卷」「发布通告」「发布文章」三个栏目。官网由 GitHub Pages 提供，定时公开的文件由现有 Worker 和 D1 提供下载。
+管理员使用密码登录。左侧可发布试卷、通告和文章，也可管理组委会名单。官网由 GitHub Pages 提供，定时公开的文件由现有 Worker 和 D1 提供下载。
 
 ## 从旧版升级
 
@@ -9,7 +9,7 @@
     npx wrangler d1 migrations apply avepho-admin --remote --config wrangler.jsonc
     npx wrangler deploy --config wrangler.jsonc
 
-迁移 `0004_publishing.sql` 使用现有 `avepho-admin` 数据库，沿用现有 GitHub App、管理员密码和密钥。Worker 部署成功后，在 GitHub 的 Actions 中对 `main` 运行一次 **Build and deploy AvePhO**，官网导航就会出现「文章」。
+迁移 `0005_committee.sql` 使用现有 `avepho-admin` 数据库，沿用现有 GitHub App、管理员密码和密钥。Worker 部署成功后，在 GitHub 的 Actions 中对 `main` 运行一次 **Build and deploy AvePhO**，升级访客端「组委会」页面。
 
 ## 公开届次、试题和答案
 
@@ -20,6 +20,12 @@
 ## 发布文章
 
 在「发布文章」填写标题和正文。公式可写成 `$…$` 或用独占一行的 `$$` 包住多行公式。选择图片会在当前光标位置加入图片，PDF 会列在文章底部。预览并保存草稿后，点击「公开文章」。需要撤回时，在文章列表打开该篇文章并点击「撤回文章」。
+
+## 管理组委会
+
+「组委会管理」包含每届命题组和命题委员会。首次打开会载入原有首届命题人。新增届次时，每行填写一位命题人。添加委员时填写昵称和简介，公开后按昵称拼音或英文字母排列。
+
+修改后点「保存草稿」，准备公示时点「发布更新」。等 GitHub Actions 运行完成，再点「核对官网」。如果自动部署未触发，可通过「查看部署记录」在 `main` 手动运行 **Build and deploy AvePhO**。
 
 ## 配置顺序
 

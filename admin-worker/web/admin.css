@@ -74,9 +74,26 @@ li button { text-align: left; width: 100%; overflow-wrap: anywhere; }
 .rich-preview pre { overflow: auto; }
 #preview-body.rich-preview { white-space: normal; }
 #editor-deployment { margin-top: 1.2rem; }
+#committee-status { margin: .25rem 0 .8rem; min-height: 1.6em; }
+.roster-section h3 { margin: .2rem 0; }
+.roster-section .row { gap: .5rem; flex-wrap: wrap; }
+.roster-team, .roster-member {
+  display: grid;
+  grid-template-columns: minmax(5rem, 1fr) minmax(0, 3fr) auto;
+  align-items: start;
+  gap: .75rem;
+  margin-top: .75rem;
+  padding-top: .75rem;
+  border-top: 1px solid #e1d4e3;
+}
+.roster-remove { margin-top: 1.6rem; }
 @media (max-width: 760px) {
   .admin-layout:not([hidden]), .admin-work .columns, .resource-grid { grid-template-columns: 1fr; }
   .admin-sidebar { position: static; }
-  .management-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .management-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .management-nav button { text-align: center; padding-inline: .25rem; }
+}
+@media (max-width: 500px) {
+  .roster-team, .roster-member { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+  .roster-remove { margin-top: 0; justify-self: start; }
 }

@@ -18,6 +18,7 @@ database.exec("INSERT INTO announcements VALUES ('migration-test', 'Existing dra
 migrate('0002_password_sessions.sql');
 migrate('0003_edition_schedule.sql');
 migrate('0004_publishing.sql');
+migrate('0005_committee.sql');
 assert.equal(database.prepare('SELECT COUNT(*) AS count FROM sessions').get().count, 0);
 assert.equal(database.prepare('SELECT title FROM announcements WHERE id = ?').get('migration-test').title, 'Existing draft');
 assert.equal(database.prepare('SELECT format FROM announcements WHERE id = ?').get('migration-test').format, 'plain');
@@ -73,6 +74,7 @@ const env = {
 let failDispatch = true;
 let servedRelease = null;
 let servedSchedule = null;
+let servedCommittee = null;
 let servedPapers = {};
 let catalog = [];
 let head = 'base';
@@ -101,7 +103,8 @@ globalThis.fetch = async (url, options) => {
       Response.json({ html_url: 'https://github.com/ChihayaAnonQyan/AvePhO/actions/runs/77' });
   }
   if (url.startsWith('https://chihayaanonqyan.github.io/AvePhO/release.json?')) {
-    return Response.json({ releaseId: servedRelease, paperRevisions: servedPapers, scheduleReleaseId: servedSchedule });
+    return Response.json({ releaseId: servedRelease, paperRevisions: servedPapers,
+      scheduleReleaseId: servedSchedule, committeeRevision: servedCommittee });
   }
   const prefix = 'https://api.github.com/repos/ChihayaAnonQyan/AvePhO';
   if (url.startsWith(prefix)) {
@@ -197,7 +200,7 @@ assert.equal(draft.revision, 1);
 assert.equal((await request('/api/announcements', { headers: auth }).then((r) => r.json())).drafts[0].id, draft.id);
 assert.deepEqual(await exported(), {
   releaseId: null, announcements: [], scheduleReleaseId: null, editionSchedule: null,
-  editorialEditions: [], articles: [],
+  editorialEditions: [], articles: [], committee: null,
 });
 assert.equal((await post('save', { ...draft, revision: 0 })).status, 409);
 
@@ -388,12 +391,44 @@ assert.equal((await request(publicPath(attachmentId), { method: 'HEAD' })).statu
 assert.equal((await post('editor/withdraw', { id: article.id, revision: article.revision })).status, 202);
 assert.deepEqual((await exported()).articles, []);
 assert.equal((await request(publicPath(imageId))).status, 404);
+assert.equal((await request('/api/committee')).status, 401);
+const readCommittee = () => request('/api/committee', { headers: auth }).then((response) => response.json());
+const initialCommittee = await readCommittee();
+assert.deepEqual(initialCommittee.draft, {
+  editionTeams: [{ number: 1, members: ['l', '整点薯条', '羽', '户山香澄'] }], members: [],
+});
+assert.equal((await post('committee/save', {}, 'https://other.test')).status, 403);
+const rosterDraft = {
+  editionTeams: [...initialCommittee.draft.editionTeams, { number: 2, members: ['届次测试成员'] }],
+  members: [
+    { name: '張羽', bio: '委员测试简介' }, { name: '李四', bio: '简介第一行\n简介第二行' },
+    { name: 'beta', bio: '<script>alert(3)</script>' }, { name: 'Alpha', bio: '另一位委员' },
+  ],
+};
+const invalid = { ...rosterDraft, editionTeams: [rosterDraft.editionTeams[0], rosterDraft.editionTeams[0]] };
+assert.equal((await post('committee/save', { revision: 0, draft: invalid })).status, 400);
+assert.equal((await post('committee/save', { revision: 0, draft: rosterDraft })).status, 200);
+assert.equal((await exported()).committee, null);
+assert.equal((await post('committee/publish', { revision: 0 })).status, 409);
+assert.deepEqual(await post('committee/check', {}).then((r) => r.json()), { live: false });
+failDispatch = true;
+assert.equal((await post('committee/publish', { revision: 1 }).then((r) => r.json())).deployed, false);
+const committeeSnapshot = await exported();
+assert.deepEqual(committeeSnapshot.committee.members.map((member) => member.name), ['Alpha', 'beta', '李四', '張羽']);
+assert.deepEqual(await post('committee/check', {}).then((r) => r.json()), { live: false });
+failDispatch = false;
+assert.equal((await post('committee/publish', { revision: 1 }).then((r) => r.json())).deployed, true);
+servedCommittee = 1;
+assert.deepEqual(await post('committee/check', {}).then((r) => r.json()), { live: true });
+assert.equal((await post('committee/save', { revision: 0, draft: { ...rosterDraft, members: [] } })).status, 409);
+assert.equal((await post('committee/save', { revision: 1, draft: { ...rosterDraft, members: [] } })).status, 200);
+assert.deepEqual((await exported()).committee, committeeSnapshot.committee);
 assert.equal((await post('logout', {})).status, 303);
 assert.equal((await request('/api/announcements', { headers: auth })).status, 401);
 
 const temp = mkdtempSync(join(tmpdir(), 'avepho-check-'));
 try {
-  for (const [name, data] of Object.entries({ published, withdrawn, editorialSnapshot })) {
+  for (const [name, data] of Object.entries({ published, withdrawn, editorialSnapshot, committeeSnapshot })) {
     const file = join(temp, name + '.json');
     const build = join(temp, name);
     writeFileSync(file, JSON.stringify(data));
@@ -411,6 +446,21 @@ try {
     assert.equal(index.includes(draft.title), name === 'published');
     assert.ok(!index.includes(changed.title));
     assert.equal(existsSync(join(build, 'admin-worker')), false);
+    for (const locale of ['', 'zh-TW', 'en', 'ja']) {
+      const page = readFileSync(join(build, locale, 'committee.html'), 'utf8');
+      assert.match(page, /href="#edition-teams"/);
+      assert.match(page, /href="#problem-setting-committee"/);
+      assert.ok(page.includes('整点薯条'));
+      assert.equal(page.includes('届次测试成员'), name === 'committeeSnapshot');
+      if (name === 'committeeSnapshot') {
+        assert.match(page, /Alpha[\s\S]+beta[\s\S]+李四[\s\S]+張羽/);
+        assert.ok(page.indexOf('届次测试成员') < page.indexOf('整点薯条'));
+        assert.ok(page.includes('&lt;script&gt;alert(3)&lt;/script&gt;'));
+        assert.ok(!page.includes('<script>alert(3)</script>'));
+      }
+    }
+    assert.equal(JSON.parse(readFileSync(join(build, 'release.json'), 'utf8')).committeeRevision,
+      name === 'committeeSnapshot' ? 1 : null);
     if (name === 'published') {
       const page = readFileSync(notice, 'utf8');
       assert.ok(page.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));

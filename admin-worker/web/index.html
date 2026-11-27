@@ -23,6 +23,7 @@
           <button id="papers-tab" type="button" aria-pressed="true" aria-controls="papers-panel">发布试卷</button>
           <button id="announcements-tab" type="button" aria-pressed="false" aria-controls="announcements-panel">发布通告</button>
           <button id="article-tab" type="button" aria-pressed="false" aria-controls="article-panel">发布文章</button>
+          <button id="committee-tab" type="button" aria-pressed="false" aria-controls="committee-panel">组委会管理</button>
         </nav>
         <form method="post" action="/api/logout"><button>退出登录</button></form>
       </aside>
@@ -111,6 +112,41 @@
             </div>
           </form>
           <div id="article-preview-panel" class="rich-preview" hidden></div>
+        </div>
+        <div id="committee-panel" hidden>
+          <h2>组委会管理</h2>
+          <p id="committee-status" role="status"></p>
+          <form id="committee-form" hidden>
+            <section class="roster-section" aria-labelledby="committee-teams-title">
+              <div class="row"><h3 id="committee-teams-title">每届命题组</h3><button id="committee-add-team" type="button">新增届次</button></div>
+              <div id="committee-teams"></div>
+            </section>
+            <section class="roster-section" aria-labelledby="committee-members-title">
+              <div class="row"><h3 id="committee-members-title">命题委员会</h3><button id="committee-add-member" type="button">添加委员</button></div>
+              <div id="committee-members"></div>
+            </section>
+            <div class="actions">
+              <button type="submit">保存草稿</button>
+              <button id="committee-publish" type="button" disabled>发布更新</button>
+              <button id="committee-check" type="button" disabled>核对官网</button>
+              <a id="committee-live" href="https://chihayaanonqyan.github.io/AvePhO/committee.html" hidden>查看官网名单</a>
+              <a id="committee-run" href="https://github.com/ChihayaAnonQyan/AvePhO/actions/workflows/pages.yml">查看部署记录</a>
+            </div>
+          </form>
+          <template id="committee-team-fields">
+            <div class="roster-team">
+              <label>届次<input name="number" type="number" min="1" max="999" required></label>
+              <label>命题人（每行一位）<textarea name="names" rows="4" required></textarea></label>
+              <button type="button" class="roster-remove">移除</button>
+            </div>
+          </template>
+          <template id="committee-member-fields">
+            <div class="roster-member">
+              <label>昵称<input name="nickname" maxlength="120" required></label>
+              <label>简介<textarea name="bio" rows="3" required></textarea></label>
+              <button type="button" class="roster-remove">移除</button>
+            </div>
+          </template>
         </div>
         <div id="editor-deployment" class="actions">
           <button id="editor-retry" type="button">重新部署官网</button>
